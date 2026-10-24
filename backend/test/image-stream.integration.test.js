@@ -48,7 +48,7 @@ async function stopBackend(child) {
   }
 }
 
-test('retries an unsupported partial-images request without stream parameters', async t => {
+async function assertRetriesWithoutStream(t, streamError) {
   const upstreamRequests = [];
   const upstream = http.createServer(async (req, res) => {
     const chunks = [];
@@ -58,7 +58,7 @@ test('retries an unsupported partial-images request without stream parameters', 
 
     if (body.stream) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: { message: 'Unsupported parameter: partial_images' } }));
+      res.end(JSON.stringify({ error: streamError }));
       return;
     }
 
@@ -133,6 +133,18 @@ test('retries an unsupported partial-images request without stream parameters', 
   assert.equal(upstreamRequests[0].partial_images, 2);
   assert.equal('stream' in upstreamRequests[1], false);
   assert.equal('partial_images' in upstreamRequests[1], false);
+}
+
+test('retries an unsupported partial-images request without stream parameters', async t => {
+  await assertRetriesWithoutStream(t, { message: 'Unsupported parameter: partial_images' });
+});
+
+test('retries without stream parameters when upstream temporarily pauses image streaming', async t => {
+  await assertRetriesWithoutStream(t, {
+    message: 'Image streaming is temporarily paused. Set stream=false and retry. No image generation was started.',
+    type: 'invalid_request_error',
+    code: 'image_stream_temporarily_disabled',
+  });
 });
 
 test('Gemini imageConfig defaults auto values and preserves an explicit aspect ratio', async t => {

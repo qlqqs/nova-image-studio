@@ -133,6 +133,8 @@ const REQUEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const IMAGE_STREAM_ENABLED = String(process.env.NOVA_IMAGE_STREAM ?? 'true').toLowerCase() !== 'false';
 const IMAGE_STREAM_PARTIAL_IMAGES = Math.min(3, Math.max(0, Number.parseInt(process.env.NOVA_IMAGE_PARTIAL_IMAGES || '1', 10) || 1));
 const IMAGE_STREAM_UNSUPPORTED_PATTERN = /(?:(?:stream|partial_images).*(?:unsupported|not supported|unknown|unrecognized|invalid)|(?:unsupported|not supported|unknown|unrecognized|invalid).*(?:stream|partial_images)|(?:stream|partial_images).*(?:不支持|未知|无效)|(?:不支持|未知|无效).*(?:stream|partial_images))/i;
+// 上游临时关闭图片流式时的提示（如 image_stream_temporarily_disabled: "Set stream=false and retry"），同样回退非流式
+const IMAGE_STREAM_DISABLED_PATTERN = /image_stream_temporarily_disabled|stream\s*=\s*false|stream(?:ing)? is (?:temporarily )?(?:paused|disabled)/i;
 // 开源版：不再硬编码模型列表，由前端通过 protocol 字段指定协议类型
 const VALID_PROTOCOLS = new Set(['google', 'openai', 'grok', 'doubao', 'alibaba-dashscope']);
 const GPT_IMAGE_QUALITIES = new Set(['auto', 'high', 'medium', 'low']);
@@ -1622,7 +1624,7 @@ async function parseGptImageResponse(response) {
 
 function isImageStreamUnsupportedError(error) {
   const message = error instanceof Error ? error.message : String(error);
-  return IMAGE_STREAM_UNSUPPORTED_PATTERN.test(message);
+  return IMAGE_STREAM_UNSUPPORTED_PATTERN.test(message) || IMAGE_STREAM_DISABLED_PATTERN.test(message);
 }
 
 async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
