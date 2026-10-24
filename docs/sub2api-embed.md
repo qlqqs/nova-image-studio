@@ -115,6 +115,7 @@ Nova 规则：
 
 - 所有 `localStorage` 键与 localforage 实例名统一经 `storageKey()` 加 `u<userId>:` 前缀；userId 变化时重新加载状态。
 - 嵌入模式下模型注册表不读写 `localStorage['nova-model-registry']`，而是由设置页的选择（只持久化 `{keyId, model}`）+ 内存中的 Key 明文在内存里生成。
+- 注册表包含所选 Key 在网关 `/v1/models` 下同用途的全部模型（按模型广场计费模式 / 名称分类，隐藏 `codex-auto-review`、`gpt-reserve`），Nova 各功能自带的模型选择器都能选；设置页选中的生图 / 对话模型排第一，作为各功能默认值。模型列表取不到时只注册选中的那一个。
 - 备份导出剔除所有 Key。
 
 

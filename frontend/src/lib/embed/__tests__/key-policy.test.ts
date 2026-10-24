@@ -118,13 +118,14 @@ describe('模型用途分类', () => {
     expect(modelsForPurpose(gateway, 'image', null, key)).toEqual(['gpt-image-2']);
   });
 
-  it('对话隐藏 codex-auto-review，默认 gpt-6.1-sol；生图默认 gpt-image-2.5-sunburst', () => {
+  it('对话隐藏 codex-auto-review 与 gpt-reserve，默认 gpt-6.1-sol；生图默认 gpt-image-2.5-sunburst', () => {
     const key = makeKey(1, 'openai', {}, { allow_image_generation: true });
-    const gateway = ['codex-auto-review', 'gpt-5.4', 'gpt-6.1-sol', 'gpt-image-2'];
+    const gateway = ['codex-auto-review', 'gpt-5.4', 'gpt-6.1-sol', 'gpt-image-2', 'gpt-reserve'];
     const text = modelsForPurpose(gateway, 'text', null, key);
     expect(text).toEqual(['gpt-5.4', 'gpt-6.1-sol']);
     expect(isHiddenModel('codex-auto-review', 'text')).toBe(true);
     expect(isHiddenModel('codex-auto-review', 'image')).toBe(false);
+    expect(isHiddenModel('gpt-reserve', 'text')).toBe(true);
     expect(pickDefaultModel(text, 'text')).toBe('gpt-6.1-sol');
     expect(pickDefaultModel(['gpt-5.4'], 'text')).toBe('gpt-5.4');
     expect(pickDefaultModel(['gpt-image-2'], 'image')).toBe('gpt-image-2');

@@ -151,16 +151,30 @@ export function emptyRegistry(): NovaModelRegistry {
   return { providers: [], imageModels: [], textModels: [], defaults: { ...DEFAULT_DEFAULTS } };
 }
 
+/** 选中的模型排第一，其余按网关返回顺序；去重。 */
+function orderedModels(selected: string, others: string[]): string[] {
+  return Array.from(new Set([selected, ...others]));
+}
+
 /**
  * 由选择 + Key 列表生成注册表。选中的 Key 不存在或不可用（调用方传入的 usable 判断）时该行视为未选择。
+ *
+ * modelsFor 给出该 Key 下某用途的全部可用模型（已按用途过滤、去掉隐藏模型），它们都写进注册表，
+ * Nova 各功能里自带的模型选择器（生图、动图、反推、拆图、Agent 等）因此能选；设置页选中的模型是各功能的默认值。
+ * 不传时只注册选中的那一个。
  */
 export function buildEmbedRegistry(
   prefs: StudioPrefs,
   keys: Sub2ApiKey[],
-  options: { baseUrl?: string; isUsable?: (key: Sub2ApiKey) => boolean } = {},
+  options: {
+    baseUrl?: string;
+    isUsable?: (key: Sub2ApiKey) => boolean;
+    modelsFor?: (key: Sub2ApiKey, purpose: 'image' | 'text') => string[];
+  } = {},
 ): NovaModelRegistry {
   const baseUrl = options.baseUrl ?? gatewayBaseUrl();
   const isUsable = options.isUsable ?? (() => true);
+  const modelsFor = options.modelsFor ?? (() => []);
   const find = (row?: RowSelection) => {
     if (!row) return undefined;
     const key = keys.find((item) => item.id === row.keyId);
@@ -168,14 +182,26 @@ export function buildEmbedRegistry(
   };
   const imageKey = find(prefs.image);
   const textKey = find(prefs.text);
-  const image = imageKey && prefs.image ? buildImageModel(imageKey, prefs.image.model, baseUrl) : null;
-  const text = textKey && prefs.text ? buildTextModel(textKey, prefs.text.model, baseUrl) : null;
+  const imageModels = imageKey && prefs.image
+    ? orderedModels(prefs.image.model, modelsFor(imageKey, 'image'))
+      .map((model) => buildImageModel(imageKey, model, baseUrl))
+      .filter((model): model is ImageModelConfig => Boolean(model))
+    : [];
+  const textModels = textKey && prefs.text
+    ? orderedModels(prefs.text.model, modelsFor(textKey, 'text'))
+      .map((model) => buildTextModel(textKey, model, baseUrl))
+      .filter((model): model is TextModelConfig => Boolean(model))
+    : [];
+  // 选中的模型在列表第一位；它建不出来（如协议不支持）时该行视为未选择
+  const image = imageKey && prefs.image && imageModels[0]?.name === prefs.image.model ? imageModels[0] : undefined;
+  const text = textKey && prefs.text && textModels[0]?.name === prefs.text.model ? textModels[0] : undefined;
   const imageId = image?.id || '';
   const textId = text?.id || '';
+  const sliceImage = image && isSliceCapableImageModel(image) ? image : imageModels.find(isSliceCapableImageModel);
   return {
     providers: [],
-    imageModels: image ? [image] : [],
-    textModels: text ? [text] : [],
+    imageModels: image ? imageModels : [],
+    textModels: text ? textModels : [],
     defaults: {
       textToImage: imageId,
       imageToImage: imageId,
@@ -185,7 +211,7 @@ export function buildEmbedRegistry(
       imageDescribe: textId,
       sliceDecomposition: textId,
       sliceReconstruct: textId,
-      sliceImageEdit: image && isSliceCapableImageModel(image) ? imageId : '',
+      sliceImageEdit: image && sliceImage ? sliceImage.id : '',
     },
   };
 }

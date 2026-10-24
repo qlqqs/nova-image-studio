@@ -160,8 +160,8 @@ export function classifyModel(model: string, billingMode?: string | null): Model
   return byName;
 }
 
-/** 网关会列出、但不适合在工作台对话里用的模型（如 Codex 内部审查模型）。 */
-const HIDDEN_TEXT_MODELS = [/^codex-auto-review/];
+/** 网关会列出、但不适合在工作台对话里用的模型（Codex 内部审查模型、备用模型）。 */
+const HIDDEN_TEXT_MODELS = [/^codex-auto-review/, /^gpt-reserve/];
 
 /** 选 Key 后默认选中的模型（按顺序取第一个可用的），都不可用时取列表第一个。 */
 const PREFERRED_MODELS: Partial<Record<StudioPurpose, string[]>> = {

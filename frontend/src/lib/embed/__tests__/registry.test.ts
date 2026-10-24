@@ -39,6 +39,36 @@ describe('内存注册表生成', () => {
     });
   });
 
+  it('所选 Key 下同用途的模型都注册，选中的排第一并作为各功能默认', () => {
+    const keys = [makeKey(10, 'openai', {}, { allow_image_generation: true })];
+    const lists = {
+      image: ['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst'],
+      text: ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-luna'],
+    };
+    const registry = buildEmbedRegistry(
+      { image: { keyId: 10, model: 'gpt-image-2.5-sunburst' }, text: { keyId: 10, model: 'gpt-6-sol' } },
+      keys,
+      { baseUrl: BASE, modelsFor: (_key, purpose) => lists[purpose] },
+    );
+    expect(registry.imageModels.map((model) => model.name)).toEqual(['gpt-image-2.5-sunburst', 'gpt-image-2', 'gpt-image-2.5-flare']);
+    expect(registry.textModels.map((model) => model.name)).toEqual(['gpt-6-sol', 'gpt-6.1-sol', 'gpt-5.6-luna']);
+    expect(new Set(registry.imageModels.map((model) => model.apiKey))).toEqual(new Set([keys[0].key]));
+    expect(registry.defaults.textToImage).toBe('embed-img:10:gpt-image-2.5-sunburst');
+    expect(registry.defaults.sliceImageEdit).toBe('embed-img:10:gpt-image-2.5-sunburst');
+    expect(registry.defaults.agent).toBe('embed-txt:10:gpt-6-sol');
+    expect(registry.defaults.reversePrompt).toBe('embed-txt:10:gpt-6-sol');
+  });
+
+  it('选中的生图模型建不出来时整行视为未选择，不拿同 Key 的其他模型顶替', () => {
+    const registry = buildEmbedRegistry(
+      { image: { keyId: 2, model: 'claude-image' } },
+      [makeKey(2, 'anthropic')],
+      { baseUrl: BASE, modelsFor: () => ['other-image'] },
+    );
+    expect(registry.imageModels).toEqual([]);
+    expect(registry.defaults.textToImage).toBe('');
+  });
+
   it('gemini 生图走 google 协议，grok 模型名规范化；切图编辑只给 openai 协议', () => {
     const gemini = buildEmbedRegistry({ image: { keyId: 4, model: 'gemini-3-pro-image-preview' } }, [makeKey(4, 'gemini')], { baseUrl: BASE });
     expect(gemini.imageModels[0]).toMatchObject({ protocol: 'google', builtinPreset: 'gemini-3-pro-image-preview', supportsAdvancedParams: false });

@@ -7,10 +7,13 @@ import { isHiddenModel, keyUnavailableReason, modelsForPurpose, pickDefaultModel
 import { buildEmbedRegistry, loadStudioPrefs, saveStudioPrefs, type StudioPrefs } from '@/lib/embed/embed-registry';
 import { clearEmbedRegistry, setEmbedRegistry } from '@/lib/embed/registry-store';
 import { setBalanceFromUser } from '@/lib/embed/balance';
-import { clearPlazaCache } from '@/lib/embed/cost-estimate';
+import { clearPlazaCache, loadPlazaGroups } from '@/lib/embed/cost-estimate';
 
 let keys: Sub2ApiKey[] = [];
 let prefs: StudioPrefs = {};
+// 各 Key 在网关上的模型列表（/v1/models），按会话缓存；重新读取 Key 列表或 revoke 时清空
+let keyModels = new Map<number, Promise<string[]>>();
+let rebuildSeq = 0;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -36,9 +39,38 @@ export function isKeyUsable(key: Sub2ApiKey): boolean {
   return !keyUnavailableReason(key);
 }
 
-/** 用当前 Key 列表与选择重建内存注册表，并通知 Nova（与独立模式保存设置后的事件一致）。 */
+function modelsOfKey(key: Sub2ApiKey): Promise<string[]> {
+  let models = keyModels.get(key.id);
+  if (!models) {
+    // 取不到时不缓存失败结果，注册表退化为只含选中的模型
+    models = listGatewayModels(key.key).catch(() => {
+      keyModels.delete(key.id);
+      return [];
+    });
+    keyModels.set(key.id, models);
+  }
+  return models;
+}
+
+/**
+ * 用当前 Key 列表与选择重建内存注册表，并通知 Nova（与独立模式保存设置后的事件一致）。
+ * 所选 Key 下同用途的模型都注册进去，选中的为默认；并发重建时只应用最后一次。
+ */
 async function rebuildRegistry(): Promise<void> {
-  setEmbedRegistry(buildEmbedRegistry(prefs, keys, { isUsable: isKeyUsable }));
+  const seq = ++rebuildSeq;
+  const selected = [prefs.image?.keyId, prefs.text?.keyId]
+    .map((id) => keys.find((key) => key.id === id))
+    .filter((key): key is Sub2ApiKey => Boolean(key && isKeyUsable(key)));
+  const [plaza, lists] = await Promise.all([
+    loadPlazaGroups().catch(() => null),
+    Promise.all(selected.map(async (key) => [key.id, await modelsOfKey(key)] as const)),
+  ]);
+  if (seq !== rebuildSeq) return;
+  const listByKey = new Map(lists);
+  setEmbedRegistry(buildEmbedRegistry(prefs, keys, {
+    isUsable: isKeyUsable,
+    modelsFor: (key, purpose) => modelsForPurpose(listByKey.get(key.id) || [], purpose, plaza, key),
+  }));
   // gemini-config 的动态模型导出依赖注册表；按需加载，避免会话到达前提前求值 Nova 模块
   const { syncDynamicModelExports } = await import('@/lib/gemini-config');
   syncDynamicModelExports();
@@ -48,6 +80,7 @@ async function rebuildRegistry(): Promise<void> {
 
 export function setStudioKeys(next: Sub2ApiKey[]): Promise<void> {
   keys = next;
+  keyModels = new Map();
   return rebuildRegistry();
 }
 
@@ -71,6 +104,7 @@ export async function bootstrapStudio(expectedUserId: number): Promise<void> {
   setBalanceFromUser(Number(user.balance));
   prefs = loadStudioPrefs();
   keys = keyList;
+  keyModels = new Map();
   await replaceHiddenTextModel();
   await rebuildRegistry();
 }
@@ -80,7 +114,7 @@ async function replaceHiddenTextModel(): Promise<void> {
   const row = prefs.text;
   if (!row || !isHiddenModel(row.model, 'text')) return;
   const key = keys.find((item) => item.id === row.keyId);
-  const models = key ? await listGatewayModels(key.key).catch(() => []) : [];
+  const models = key ? await modelsOfKey(key) : [];
   const model = pickDefaultModel(modelsForPurpose(models, 'text', null, key), 'text');
   const next: StudioPrefs = { ...prefs };
   if (key && model) next.text = { keyId: key.id, model };
@@ -93,6 +127,8 @@ async function replaceHiddenTextModel(): Promise<void> {
 export function resetStudioState(): void {
   keys = [];
   prefs = {};
+  keyModels = new Map();
+  rebuildSeq++;
   clearEmbedRegistry();
   clearPlazaCache();
   emit();
