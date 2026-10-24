@@ -85,9 +85,22 @@ export function filterKeysForPurpose(keys: Sub2ApiKey[], purpose: StudioPurpose,
   return options.sort((a, b) => Number(Boolean(a.disabledReason)) - Number(Boolean(b.disabledReason)));
 }
 
-/** 一键创建时可选的分组（按用途）。 */
+/** 一键创建时可选的分组（按用途），生图与对话都支持的分组排在前面。 */
 export function filterGroupsForPurpose(groups: Sub2ApiGroup[], purpose: StudioPurpose): Sub2ApiGroup[] {
-  return groups.filter((group) => (!group.status || group.status === 'active') && groupPurposeSupport(group, purpose) === '');
+  return groups
+    .filter((group) => (!group.status || group.status === 'active') && groupPurposeSupport(group, purpose) === '')
+    .sort((a, b) => Number(!supportsImageAndText(a)) - Number(!supportsImageAndText(b)));
+}
+
+export function supportsImageAndText(group: Sub2ApiGroup | null | undefined): boolean {
+  return groupPurposeSupport(group, 'image') === '' && groupPurposeSupport(group, 'text') === '';
+}
+
+export const STUDIO_KEY_NAME = '创作工作台';
+
+/** 一键创建的 Key 名：分组生图与对话都能用时只建一把通用的「创作工作台」，否则按用途加后缀。 */
+export function studioKeyName(group: Sub2ApiGroup | null | undefined, purposeLabel: string): string {
+  return supportsImageAndText(group) ? STUDIO_KEY_NAME : `${STUDIO_KEY_NAME}-${purposeLabel}`;
 }
 
 const IMAGE_NAME_PATTERNS = [
@@ -147,12 +160,32 @@ export function classifyModel(model: string, billingMode?: string | null): Model
   return byName;
 }
 
+/** 网关会列出、但不适合在工作台对话里用的模型（如 Codex 内部审查模型）。 */
+const HIDDEN_TEXT_MODELS = [/^codex-auto-review/];
+
+/** 选 Key 后默认选中的模型（按顺序取第一个可用的），都不可用时取列表第一个。 */
+const PREFERRED_MODELS: Partial<Record<StudioPurpose, string[]>> = {
+  image: ['gpt-image-2.5-sunburst'],
+  text: ['gpt-6.1-sol'],
+};
+
+export function isHiddenModel(model: string, purpose: StudioPurpose): boolean {
+  const name = model.trim().toLowerCase();
+  return purpose === 'text' && HIDDEN_TEXT_MODELS.some((pattern) => pattern.test(name));
+}
+
+export function pickDefaultModel(candidates: string[], purpose: StudioPurpose): string | undefined {
+  const preferred = PREFERRED_MODELS[purpose] || [];
+  return preferred.find((model) => candidates.includes(model)) ?? candidates[0];
+}
+
 /**
- * 该 Key 在网关上可用的模型中，属于某用途的部分。
+ * 该 Key 在网关上可用的模型中，属于某用途的部分（去掉隐藏的模型）。
  * 计费模式取自模型广场里该 Key 所属分组的同名模型；广场不可用时按名称分类。
  */
 export function modelsForPurpose(models: string[], purpose: StudioPurpose, plazaGroups: PlazaGroup[] | null | undefined, key: Sub2ApiKey | undefined): string[] {
   return models.filter((model) => {
+    if (isHiddenModel(model, purpose)) return false;
     const billing = key ? findPlazaModel(plazaGroups, key.group_id, model)?.model.pricing?.billing_mode : undefined;
     return classifyModel(model, billing) === purpose;
   });

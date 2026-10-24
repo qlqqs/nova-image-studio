@@ -9,8 +9,11 @@ import {
   findPlazaModel,
   formatBalance,
   formatModelPrice,
+  isHiddenModel,
   keyUnavailableReason,
   modelsForPurpose,
+  pickDefaultModel,
+  studioKeyName,
 } from '@/lib/embed/key-policy';
 import { makeKey, PLAZA } from './fixtures';
 
@@ -72,6 +75,15 @@ describe('Key 按用途过滤', () => {
     expect(filterGroupsForPurpose(groups, 'image').map((group) => group.platform).sort()).toEqual(['antigravity', 'gemini', 'grok', 'grok', 'openai']);
     expect(filterGroupsForPurpose([{ id: 1, name: 'x', platform: 'openai', status: 'inactive', allow_image_generation: true }], 'image')).toEqual([]);
   });
+
+  it('一键创建：生图与对话都支持的分组排前面，只建一把通用的「创作工作台」', () => {
+    const textOnly = { id: 1, name: 'claude', platform: 'anthropic', status: 'active' };
+    const both = { id: 2, name: 'codex', platform: 'openai', status: 'active', allow_image_generation: true };
+    expect(filterGroupsForPurpose([textOnly, both], 'text').map((group) => group.id)).toEqual([2, 1]);
+    expect(studioKeyName(both, '生图')).toBe('创作工作台');
+    expect(studioKeyName(textOnly, '对话')).toBe('创作工作台-对话');
+    expect(studioKeyName({ ...both, allow_image_generation: false }, '对话')).toBe('创作工作台-对话');
+  });
 });
 
 describe('模型用途分类', () => {
@@ -104,6 +116,20 @@ describe('模型用途分类', () => {
     expect(modelsForPurpose(gateway, 'text', PLAZA, key)).toEqual(['gpt-5.4']);
     // 广场不可用时按名称：未知名称的 mystery-render 归为对话
     expect(modelsForPurpose(gateway, 'image', null, key)).toEqual(['gpt-image-2']);
+  });
+
+  it('对话隐藏 codex-auto-review，默认 gpt-6.1-sol；生图默认 gpt-image-2.5-sunburst', () => {
+    const key = makeKey(1, 'openai', {}, { allow_image_generation: true });
+    const gateway = ['codex-auto-review', 'gpt-5.4', 'gpt-6.1-sol', 'gpt-image-2'];
+    const text = modelsForPurpose(gateway, 'text', null, key);
+    expect(text).toEqual(['gpt-5.4', 'gpt-6.1-sol']);
+    expect(isHiddenModel('codex-auto-review', 'text')).toBe(true);
+    expect(isHiddenModel('codex-auto-review', 'image')).toBe(false);
+    expect(pickDefaultModel(text, 'text')).toBe('gpt-6.1-sol');
+    expect(pickDefaultModel(['gpt-5.4'], 'text')).toBe('gpt-5.4');
+    expect(pickDefaultModel(['gpt-image-2'], 'image')).toBe('gpt-image-2');
+    expect(pickDefaultModel(['gpt-image-1', 'gpt-image-2', 'gpt-image-2.5-sunburst'], 'image')).toBe('gpt-image-2.5-sunburst');
+    expect(pickDefaultModel([], 'text')).toBeUndefined();
   });
 });
 

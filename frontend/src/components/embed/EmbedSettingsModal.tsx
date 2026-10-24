@@ -29,7 +29,8 @@ export interface EmbedSettingsModalProps {
   initialTab?: string;
 }
 
-const TRIGGER_CLASS = 'gap-2 rounded-none border-b-2 border-transparent data-active:border-primary data-active:bg-transparent data-active:shadow-none px-4 py-3';
+// 只用底部一条线标出当前分区：去掉上游的焦点外框、深色下的方框与底色
+const TRIGGER_CLASS = 'gap-2 rounded-none border-0 border-b-2 border-transparent px-4 py-3 data-active:border-primary data-active:bg-transparent data-active:shadow-none dark:data-active:border-primary dark:data-active:bg-transparent focus-visible:ring-0 focus-visible:outline-none';
 
 /** 「插件」分区只对 sub2api 管理员显示（PRD R5A.2）。纯函数，便于测试。 */
 export function visibleEmbedSettingsTabs(isAdmin: boolean): EmbedSettingsTab[] {
