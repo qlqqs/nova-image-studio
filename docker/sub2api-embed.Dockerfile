@@ -4,6 +4,8 @@
 FROM node:24-slim AS frontend-builder
 
 WORKDIR /app/frontend
+# next.config 从根目录 package.json 读取版本号
+COPY package.json /app/package.json
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
