@@ -21,6 +21,7 @@ import {
 } from '@/lib/gif-job-store';
 import type { RefImageData } from '@/lib/job-store';
 import { supportsGptImageAdvancedParams, type GptImageAdvancedParams } from '@/lib/model-capabilities';
+import { KEY_SETUP_ACTION } from '@/lib/embed/copy';
 
 export interface GifUploadedRef extends RefImageData {
   preview: string;
@@ -72,7 +73,7 @@ export function GifParametersPanel(props: GifParametersPanelProps) {
         <div className="max-w-md">
           <p className="text-base font-medium text-foreground">需要先配置令牌</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            请先在设置中配置 Nova API 密钥，才能使用动图生成功能。
+            请先在设置中{KEY_SETUP_ACTION}，才能使用动图生成功能。
           </p>
         </div>
         <Button onClick={props.onConfigureApiKey}>配置</Button>

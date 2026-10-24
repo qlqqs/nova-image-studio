@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 interface WorkspaceModeTabsProps {
   wideMode?: boolean;
   showPromptGallery?: boolean;
+  /** 嵌入模式一期关闭视频工作台 */
+  hideVideo?: boolean;
 }
 
 const tabs = [
@@ -24,9 +26,10 @@ const tabs = [
 
 const galleryTab = { value: 'prompt-gallery', icon: LibraryBig, label: '提示词广场' } as const;
 
-export function WorkspaceModeTabs({ wideMode = false, showPromptGallery = false }: WorkspaceModeTabsProps) {
-  const gridCols = showPromptGallery ? 'sm:grid-cols-9' : 'sm:grid-cols-8';
-  const allTabs = showPromptGallery ? [...tabs, galleryTab] : tabs;
+export function WorkspaceModeTabs({ wideMode = false, showPromptGallery = false, hideVideo = false }: WorkspaceModeTabsProps) {
+  const baseTabs = hideVideo ? tabs.filter(tab => tab.value !== 'video-generation') : tabs;
+  const allTabs = showPromptGallery ? [...baseTabs, galleryTab] : baseTabs;
+  const gridCols = ({ 7: 'sm:grid-cols-7', 8: 'sm:grid-cols-8', 9: 'sm:grid-cols-9' } as Record<number, string>)[allTabs.length] || 'sm:grid-cols-8';
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const [isCompact, setIsCompact] = useState(false);

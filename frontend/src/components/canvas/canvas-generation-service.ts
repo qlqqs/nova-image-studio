@@ -13,6 +13,7 @@ import { compressReferenceDataUrl } from "./lib/image-utils";
 import { uploadImage } from "./lib/image-storage";
 import type { CanvasGenerationConfig } from "./types";
 import type { ReferenceImage } from "./types-media";
+import { isProtectedImageUrl } from "@/lib/embed/authed-image";
 
 export type { CanvasGenerationConfig };
 
@@ -179,7 +180,8 @@ async function storeResultImage(image: string, maxDownloadRetries = 3): Promise<
     };
   } catch (error) {
     return {
-      url: realUrl,
+      // 嵌入模式下 /api/nova/images/... 需会话鉴权，不能直接作为 <img src> 渲染；保留 remoteUrl 供自动重取
+      url: isProtectedImageUrl(realUrl) ? "" : realUrl,
       remoteUrl: realUrl,
       width: 1024,
       height: 1024,

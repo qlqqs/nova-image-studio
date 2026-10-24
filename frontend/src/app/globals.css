@@ -8,6 +8,12 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* 嵌入 sub2api 控制台：不预留滚动条槽，细滚动条，与外壳内容区一致 */
+html[data-nova-embed] {
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+}
+
 /* Light theme (default) - Slate palette with Sky blue */
 :root {
   --background: #ffffff;
@@ -628,3 +634,87 @@ body {
 .animate-progress-indeterminate {
   animation: progress-indeterminate 1.4s ease-in-out infinite;
 }
+
+/*
+ * 嵌入 sub2api 控制台：配色取 QxAPI 主题（sub2api frontend/src/themes/qx/app/tokens.css），
+ * 只换颜色变量，不改布局。极简：白底 / 藏青底、1px 淡线、主色只用于主要操作与选中态。
+ * 选择器带 html[data-nova-embed]，优先级高于上面的 :root / [data-theme] / prefers-color-scheme。
+ */
+html[data-nova-embed] {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+  --border: #e5e8ee;
+  --input: #e5e8ee;
+  --primary: #1d4eff;
+  --primary-foreground: #ffffff;
+  --secondary: #f6f8fb;
+  --secondary-foreground: #0f172a;
+  --accent: #edf2ff;
+  --accent-foreground: #1d4eff;
+  --muted: #f6f8fb;
+  --muted-foreground: #7a8699;
+  --placeholder: #94a0b4;
+  --ring: #1d4eff;
+  --chart-1: #1d4eff;
+  --chart-2: #4f7bff;
+  --chart-3: #0891b2;
+  --chart-4: #1640d6;
+  --chart-5: #7a9bff;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #1d4eff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f6f8fb;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e5e8ee;
+  --sidebar-ring: #1d4eff;
+  --processing: #1d4eff;
+  --processing-foreground: #ffffff;
+}
+
+html[data-nova-embed][data-theme="dark"] {
+  --background: #0b0f17;
+  --foreground: #e8ecf3;
+  --card: #111723;
+  --card-foreground: #e8ecf3;
+  --popover: #111723;
+  --popover-foreground: #e8ecf3;
+  --border: #1f2633;
+  --input: #243044;
+  --primary: #4f7bff;
+  --primary-foreground: #ffffff;
+  --secondary: #0f141e;
+  --secondary-foreground: #e8ecf3;
+  --accent: #16203d;
+  --accent-foreground: #e8ecf3;
+  --muted: #0f141e;
+  --muted-foreground: #7d889b;
+  --placeholder: #5b6880;
+  --ring: #4f7bff;
+  --chart-1: #4f7bff;
+  --chart-2: #6b8fff;
+  --chart-3: #22d3ee;
+  --chart-4: #1d4eff;
+  --chart-5: #93adff;
+  --sidebar: #0b0f17;
+  --sidebar-foreground: #e8ecf3;
+  --sidebar-primary: #4f7bff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #0f141e;
+  --sidebar-accent-foreground: #e8ecf3;
+  --sidebar-border: #1f2633;
+  --sidebar-ring: #4f7bff;
+  --processing: #4f7bff;
+  --processing-foreground: #ffffff;
+}
+
+/* 上游的虚线投放区是 2px 蓝框 + 蓝底，嵌入时改为 1px 灰色虚线、无底色；悬停 / 拖入时仍显示主色 */
+html[data-nova-embed] { --nova-dash: #c3ccda; }
+html[data-nova-embed][data-theme="dark"] { --nova-dash: #33405a; }
+html[data-nova-embed] .border-dashed.border-2 { border-width: 1px; }
+html[data-nova-embed] .border-dashed.border-primary\/30:not(:hover) { border-color: var(--nova-dash); }
+html[data-nova-embed] .border-dashed.bg-primary\/5:not(:hover) { background-color: transparent; }

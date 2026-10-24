@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { fetchAllPromptSources, DEFAULT_CATEGORIES, ALL_CATEGORY, type PromptWithKey } from '@/lib/prompt-gallery-data';
+import { AuthedImg } from '@/components/embed/AuthedImg';
 
 const PAGE_SIZE = 12;
 
@@ -158,7 +159,7 @@ export const PromptSelectDialog = memo(function PromptSelectDialog({
                   <div className="flex items-start justify-between gap-2">
                     <h3 className="font-medium text-sm line-clamp-1">{prompt.title}</h3>
                     {prompt.images[0] && (
-                      <img
+                      <AuthedImg
                         src={prompt.images[0]}
                         alt={prompt.title}
                         className="w-12 h-12 rounded object-cover flex-shrink-0"

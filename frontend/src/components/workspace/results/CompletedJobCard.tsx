@@ -17,6 +17,8 @@ import {
   runImageAction,
   type ImageActionPayload,
 } from '@/lib/image-actions';
+import { AuthedImg } from '@/components/embed/AuthedImg';
+import { acquireAuthedImageUrl, isProtectedImageUrl, releaseAuthedImageUrl } from '@/lib/embed/authed-image';
 
 interface CompletedJobCardProps {
   job: StoredJob;
@@ -221,9 +223,24 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
     setTimeout(() => setPromptCopied(false), 2000);
   };
 
+  // 嵌入模式：预览里的 /api/nova/images/... 经鉴权 fetch 取成 blob URL，关闭预览时释放
+  const previewAuthedRef = useRef<string[]>([]);
+  const releasePreviewAuthed = useCallback(() => {
+    for (const src of previewAuthedRef.current) releaseAuthedImageUrl(src);
+    previewAuthedRef.current = [];
+  }, []);
+  useEffect(() => releasePreviewAuthed, [releasePreviewAuthed]);
+
   const openPreview = async () => {
     const resolved = await resolveImagesAt(sourceImages.map((_, index) => index));
-    setPreviewImages(resolved.map(getImageSrc).filter(Boolean));
+    const srcs = resolved.map(getImageSrc).filter(Boolean);
+    releasePreviewAuthed();
+    const display = await Promise.all(srcs.map(async (src) => {
+      if (!isProtectedImageUrl(src)) return src;
+      previewAuthedRef.current.push(src);
+      return acquireAuthedImageUrl(src).catch(() => '');
+    }));
+    setPreviewImages(display.filter(Boolean));
     setPreviewOpen(true);
   };
 
@@ -262,7 +279,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
               {isMultiple ? (
                 <div className="relative h-full w-full">
                 {visiblePreviewImages.map((image, index) => (
-                  <img
+                  <AuthedImg
                     key={`${job.id}-${index}`}
                     src={lazyLoad.isVisible ? (getImageSrc(image) || undefined) : undefined}
                     alt={`生成的图像 ${index + 1}`}
@@ -285,7 +302,7 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
                 </div>
               ) : (
                 <>
-                <img
+                <AuthedImg
                   src={lazyLoad.isVisible ? (getImageSrc(images[0]) || undefined) : undefined}
                   alt="生成的图像"
                   className={`h-full w-full object-cover transition-opacity duration-300 ${lazyLoad.isLoaded ? 'opacity-100' : 'opacity-0'}`}
@@ -473,7 +490,10 @@ export const CompletedJobCard = memo(function CompletedJobCard({ job, onClear, o
         <HistoryImagePreview
           images={previewImages}
           alt={job.prompt}
-          onClose={() => setPreviewOpen(false)}
+          onClose={() => {
+            setPreviewOpen(false);
+            releasePreviewAuthed();
+          }}
           actionPayloads={actionPayloads}
         />,
         document.body

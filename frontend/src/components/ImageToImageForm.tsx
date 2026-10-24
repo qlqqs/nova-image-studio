@@ -53,6 +53,7 @@ import { dispatchImageActionToast } from '@/lib/image-actions';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
 import type { RefImageData, OutputSize, AspectRatio } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
+import { KEY_SETUP_ACTION } from '@/lib/embed/copy';
 
 
 const I2I_SETTINGS_KEY = 'nova-i2i-settings';
@@ -117,7 +118,7 @@ export function ImageToImageForm({
   const [prompt, setPrompt] = useState('');
   const [pendingFiles, setPendingFiles] = useState<UploadedFile[]>([]);
 
-  const disabledMessage = '请先在设置中配置 Nova API 密钥，配置完成后即可开始转换图片。';
+  const disabledMessage = `请先在设置中${KEY_SETUP_ACTION}，配置完成后即可开始转换图片。`;
 
   // 先使用稳定默认值，避免 SSR/CSR 首帧不一致；挂载后再恢复缓存
   const [model, setModel] = useState<ModelId>('gemini-3-pro-image-preview');

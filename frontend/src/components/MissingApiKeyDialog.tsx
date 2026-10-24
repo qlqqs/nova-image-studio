@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 interface MissingApiKeyDialogProps {
   open: boolean;
@@ -26,9 +27,11 @@ export function MissingApiKeyDialog({ open, onOpenChange, onConfigure }: Missing
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>请先配置 API 密钥</DialogTitle>
+          <DialogTitle>{isEmbedMode() ? '请先选择生图密钥' : '请先配置 API 密钥'}</DialogTitle>
           <DialogDescription>
-            Nova 模式需要先配置 API 密钥，配置完成后即可生成或转换图片。
+            {isEmbedMode()
+              ? '在设置「模型与密钥」中为生图选择一个 API 密钥和模型（没有可用密钥时可一键创建），选好后即可生成或转换图片。'
+              : 'Nova 模式需要先配置 API 密钥，配置完成后即可生成或转换图片。'}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -36,7 +39,7 @@ export function MissingApiKeyDialog({ open, onOpenChange, onConfigure }: Missing
             取消
           </Button>
           <Button onClick={handleConfigure}>
-            配置
+            {isEmbedMode() ? '打开模型与密钥' : '配置'}
           </Button>
         </DialogFooter>
       </DialogContent>

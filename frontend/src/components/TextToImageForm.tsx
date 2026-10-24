@@ -38,6 +38,7 @@ import {
 } from '@/lib/model-capabilities';
 import type { OutputSize, AspectRatio } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
+import { KEY_SETUP_ACTION } from '@/lib/embed/copy';
 
 interface QueuedPrompt {
   id: string;
@@ -72,7 +73,7 @@ export function TextToImageForm({ onSubmit, disabled = false, onDraftConsumed, o
   const [prompt, setPrompt] = useState('');
   const [queue, setQueue] = useState<QueuedPrompt[]>([]);
 
-  const disabledMessage = '请先在设置中配置 Nova API 密钥，配置完成后即可开始生成图片。';
+  const disabledMessage = `请先在设置中${KEY_SETUP_ACTION}，配置完成后即可开始生成图片。`;
 
   const [model, setModel] = useState<ModelId>('gemini-3-pro-image-preview');
   const [outputSize, setOutputSize] = useState<OutputSize>('1K');

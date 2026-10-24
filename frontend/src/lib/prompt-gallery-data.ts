@@ -1,4 +1,6 @@
 import type { PromptGalleryData, PromptGalleryItem, PromptGallerySection } from '@/lib/prompt-gallery-types';
+import { isEmbedMode } from '@/lib/embed/mode';
+import { embedGalleryImageUrl, embedGallerySourceUrl } from '@/lib/embed/prompt-gallery';
 
 export interface PromptDataSource {
   name: string;
@@ -399,9 +401,24 @@ export interface FetchResult {
   categories: string[];
 }
 
+// 嵌入模式：来源文件与示例图经 Nova 后端拉取（docs/sub2api-embed.md §8A）。
+function embedSource(source: PromptDataSource): PromptDataSource {
+  return {
+    ...source,
+    url: embedGallerySourceUrl(source.url),
+    baseUrl: source.baseUrl && embedGallerySourceUrl(source.baseUrl),
+  };
+}
+
+async function fetchSourceForMode(source: PromptDataSource): Promise<PromptWithKey[]> {
+  if (!isEmbedMode()) return fetchSource(source);
+  const prompts = await fetchSource(embedSource(source));
+  return prompts.map(p => ({ ...p, images: p.images.map(embedGalleryImageUrl) }));
+}
+
 export async function fetchAllPromptSources(): Promise<FetchResult> {
   const settled = await Promise.allSettled(
-    PROMPT_DATA_SOURCES.map(source => fetchSource(source))
+    PROMPT_DATA_SOURCES.map(source => fetchSourceForMode(source))
   );
 
   const categorySet = new Set<string>(DEFAULT_CATEGORIES.filter(c => c !== ALL_CATEGORY));

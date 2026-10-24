@@ -13,6 +13,7 @@ import {
   normalizeTextModelBaseUrl,
 } from '@/lib/model-endpoints';
 import type { TextProviderProtocol } from '@/lib/nova-text-protocol';
+import { inspectEmbedTaskPayload } from '@/lib/embed/task-events';
 
 export interface ImageReference {
   data: string;
@@ -106,7 +107,8 @@ function getObjectProperty(data: unknown, key: string): unknown {
 }
 
 async function parseTaskResponse<T>(response: Response): Promise<T> {
-  const data: unknown = await response.json().catch(() => null);
+  // 嵌入模式：网关错误转中文、任务结束时刷新余额；独立模式原样返回
+  const data: unknown = inspectEmbedTaskPayload(await response.json().catch(() => null));
   if (!response.ok) {
     const error = getObjectProperty(data, 'error');
     const code = getObjectProperty(data, 'code');

@@ -2,6 +2,7 @@ import { isGptImageModel } from '@/lib/gemini-config';
 import type { RefImageData } from '@/lib/job-store';
 import { supportsCustomSize, type GptImageBackground, type GptImageQuality, type GptImageStyle } from '@/lib/model-capabilities';
 import { getDefaultImageModel, getCompleteImageModels, loadRegistry } from '@/lib/nova-models';
+import { withBasePath } from '@/lib/embed/public-path';
 
 export type GifModel = string;
 
@@ -35,7 +36,7 @@ export interface ActiveGifJob {
 }
 
 const STORAGE_KEY = 'nova-gif-active-job';
-const TEMPLATE_URL = '/togif.png';
+const TEMPLATE_URL = withBasePath('/togif.png');
 
 export const GIF_MAX_REF_IMAGES = 6;
 export const GIF_DEFAULT_FRAME_DELAY_MS = 120;

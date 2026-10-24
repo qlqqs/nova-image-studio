@@ -45,6 +45,9 @@ import type { AspectRatio, OutputSize, RefImageData } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
 import type { ImageToImageSubmitInput, TextToImageSubmitInput } from '@/lib/workspace-task-service';
 import { cn } from '@/lib/utils';
+import { KEY_SETUP_ACTION } from '@/lib/embed/copy';
+import { EmbedCostEstimate } from '@/components/embed/EmbedCostEstimate';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 const WORKBENCH_SETTINGS_KEY = 'nova-image-generation-settings';
 const T2I_SETTINGS_KEY = 'nova-t2i-settings';
@@ -148,7 +151,7 @@ export function ImageGenerationWorkbench({
   const aspectRatioOptions = useMemo(() => getAspectRatioOptions(model, outputSize), [model, outputSize]);
   const currentMode: WorkbenchMode = pendingFiles.length > 0 ? 'image-to-image' : 'text-to-image';
   const autoLayoutLocked = outputSize === 'auto';
-  const disabledMessage = '请先在设置中配置 Nova API 密钥，配置完成后即可开始生成图片。';
+  const disabledMessage = `请先在设置中${KEY_SETUP_ACTION}，配置完成后即可开始生成图片。`;
 
   const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
     if (patch.model !== undefined) {
@@ -617,7 +620,7 @@ export function ImageGenerationWorkbench({
 
   return (
     <div ref={formRef} className="space-y-4">
-      <div className="bg-muted/50 border border-border rounded-xl shadow-md">
+      <div className={cn('bg-muted/50 border border-border rounded-xl shadow-md', isEmbedMode() && 'bg-card shadow-none')}>
         {disabled ? (
           <div className="flex min-h-40 flex-col items-center justify-center gap-4 px-4 py-8 text-center">
             <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -708,7 +711,7 @@ export function ImageGenerationWorkbench({
               onKeyDown={handleKeyDown}
               placeholder={pendingFiles.length > 0 ? '描述如何调整参考图...' : '描述你想要生成的图像...'}
               rows={3}
-              className="resize-none rounded-none border-0 bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
+              className="resize-none rounded-none border-0 bg-transparent dark:bg-transparent px-3 pt-3 placeholder:text-placeholder focus-visible:border-0 focus-visible:ring-0 sm:px-4 sm:pt-4"
             />
 
             <div className="px-3 pt-2 pb-2 sm:px-4">
@@ -719,6 +722,7 @@ export function ImageGenerationWorkbench({
             </div>
 
             <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">
+              <EmbedCostEstimate model={model} outputSize={outputSize} count={parallelCount} className="mr-auto pl-1" />
               <Button variant="ghost" size="icon" onClick={() => setQuickPromptOpen(true)} title="快速提示词">
                 <Zap className="w-4 h-4" />
               </Button>

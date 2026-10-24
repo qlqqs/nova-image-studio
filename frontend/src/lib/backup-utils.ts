@@ -2,6 +2,8 @@
 
 import { zip, unzip, zipSync, unzipSync, strToU8, type Unzipped } from 'fflate';
 import localforage from 'localforage';
+import { isEmbedMode } from '@/lib/embed/mode';
+import { sanitizeLocalStorageExport, stripSecretsDeep } from '@/lib/embed/backup-sanitize';
 
 export interface BackupProgress {
     percent: number;
@@ -454,14 +456,19 @@ export async function exportAllData(onProgress?: ProgressCallback, options?: Exp
     if (onProgress) {
         onProgress({ percent: 5, message: '正在导出 localStorage...' });
     }
-    const localStorageData = exportLocalStorage();
+    const embedded = isEmbedMode();
+    // 嵌入模式：导出内容剔除所有 Key（docs/sub2api-embed.md §11）
+    const localStorageData = embedded ? sanitizeLocalStorageExport(exportLocalStorage()) : exportLocalStorage();
 
     // 逐 store 导出 IndexedDB，Blob 数据直接转为 Uint8Array 存入 files
     const files: Record<string, Uint8Array> = {};
-    const { data: indexedDBData, schema } = await exportIndexedDB(files, onProgress, includeImages);
+    const exportedIndexedDB = await exportIndexedDB(files, onProgress, includeImages);
+    const schema = exportedIndexedDB.schema;
+    const indexedDBData = embedded ? stripSecretsDeep(exportedIndexedDB.data) as typeof exportedIndexedDB.data : exportedIndexedDB.data;
 
     // 导出 localforage 数据
-    const localForageData = await exportLocalForage(files, includeImages);
+    const exportedLocalForage = await exportLocalForage(files, includeImages);
+    const localForageData = embedded ? stripSecretsDeep(exportedLocalForage) as typeof exportedLocalForage : exportedLocalForage;
 
     // 打包元数据和 localStorage JSON
     if (onProgress) {
@@ -531,6 +538,9 @@ function importLocalStorage(data: unknown): void {
         if (!allowedKeySet.has(key)) continue;
         // 只允许字符串值
         if (typeof value !== 'string') continue;
+
+        // 嵌入模式不使用本地注册表（Key 只来自 sub2api），不导入
+        if (key === 'nova-model-registry' && isEmbedMode()) continue;
 
         // 模型注册表含各模型的 API Key 与端点，结构损坏时整条跳过，避免覆盖成坏数据
         if (key === 'nova-model-registry') {

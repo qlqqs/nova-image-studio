@@ -23,6 +23,7 @@ import { findCanvasPromptField } from "../canvas-video-generation-service";
 import type { FacetValues, FieldValues, InstalledPlugin } from "@/lib/plugin-schema";
 import type { CanvasGenerationConfig, CanvasGenerationMode } from "../types";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
+import { isEmbedMode } from "@/lib/embed/mode";
 
 export type CanvasPromptRouteOption = { value: string; label: string; disabled?: boolean };
 
@@ -171,7 +172,8 @@ export function CanvasConfigNodePanel({
   return (
     <div className="flex h-full flex-col gap-2 p-2 text-xs" onPointerDown={() => onSelect()}>
       <div className="shrink-0 space-y-1" data-no-drag>
-        <Segmented
+        {/* 嵌入模式一期关闭视频（插件任务接口返回 404），不显示图片 / 视频切换 */}
+        {!isEmbedMode() && <Segmented
           value={generationMode ?? "image"}
           onChange={onGenerationModeChange ?? noop}
           options={[
@@ -180,7 +182,7 @@ export function CanvasConfigNodePanel({
           ]}
           className="flex w-full"
           size="sm"
-        />
+        />}
         <Select<string>
           value={routeValue}
           onValueChange={onRouteChange}

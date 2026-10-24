@@ -17,6 +17,7 @@ import { runImageAction, type ImageActionPayload } from '@/lib/image-actions';
 
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
 import { useBodyScrollLock } from '@/lib/scroll-lock';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 function getDistance(t1: { clientX: number; clientY: number }, t2: { clientX: number; clientY: number }) {
   return Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -39,6 +40,8 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
   { queueStatus, wideMode, onToggleWideMode, onOpenSettings, onLogoClick, sidebarMode = false },
   ref,
 ) {
+  // 嵌入模式：不显示 Nova 品牌、主题切换（跟随控制台）与外部随机图片；工具栏右侧显示余额
+  const embedded = isEmbedMode();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [imageSrc, setImageSrc] = useState('');
   const [imageTitle, setImageTitle] = useState('');
@@ -111,7 +114,7 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
   return (
     <header className={cn(sidebarMode ? 'xl:pb-0' : 'space-y-3 sm:space-y-5')}>
       <div className="flex items-start justify-between gap-2 sm:gap-4">
-        <div className={cn("flex min-w-0 shrink-0 items-center gap-2 sm:gap-3", sidebarMode && 'xl:hidden')}>
+        {!embedded && <div className={cn("flex min-w-0 shrink-0 items-center gap-2 sm:gap-3", sidebarMode && 'xl:hidden')}>
           <button
             type="button"
             onClick={onLogoClick}
@@ -128,11 +131,12 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
             <h1 className="truncate text-2xl font-semibold tracking-tight">Nova Studio</h1>
             <p className="text-sm text-muted-foreground">批量 API 图像生成器</p>
           </div>
-        </div>
+        </div>}
 
         {/* ── 按钮 + 状态区域（宽屏 sidebarMode 时隐藏） ── */}
-        <div className={cn('flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none sm:flex-col sm:items-end sm:gap-2', sidebarMode && 'xl:hidden')}>
-          <div className="order-1 flex min-w-0 flex-1 flex-wrap items-center justify-start gap-1 sm:order-2 sm:flex-none sm:justify-end sm:gap-2">
+        <div className={cn('flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:flex-none sm:flex-col sm:items-end sm:gap-2', sidebarMode && 'xl:hidden', embedded && 'ml-auto')}>
+          {/* 嵌入模式不显示服务器队列状态（对用户没有意义；暂停接收等情况在提交时提示） */}
+          {!embedded && <div className="order-1 flex min-w-0 flex-1 flex-wrap items-center justify-start gap-1 sm:order-2 sm:flex-none sm:justify-end sm:gap-2">
             {queueStatus ? (
               <>
                 <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] leading-5 text-muted-foreground sm:px-3 sm:py-1 sm:text-xs sm:leading-normal">
@@ -165,9 +169,9 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
             ) : (
               <span className="shrink-0 text-[10px] text-muted-foreground sm:text-xs">排队状态未知</span>
             )}
-          </div>
+          </div>}
           <div className="order-2 flex shrink-0 items-center justify-end gap-1.5 sm:order-1 sm:max-w-full sm:flex-wrap sm:gap-2">
-            <DropdownMenu modal={false}>
+            {!embedded && <DropdownMenu modal={false}>
               <DropdownMenuTrigger
                 className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-0 px-2 sm:gap-2 sm:px-2.5")}
                 title="随机图片"
@@ -186,8 +190,8 @@ export const WorkspaceHeader = forwardRef<WorkspaceHeaderRef, WorkspaceHeaderPro
                   Bing壁纸
                 </DropdownMenuItem>
               </DropdownMenuContent>
-            </DropdownMenu>
-            <ThemeToggle />
+            </DropdownMenu>}
+            {!embedded && <ThemeToggle />}
             <WideModeToggle enabled={wideMode} onToggle={onToggleWideMode} />
             <Button variant="outline" size="sm" onClick={onOpenSettings} className="gap-0 px-2 sm:gap-2 sm:px-2.5" title="设置" aria-label="设置">
               <Settings className="w-4 h-4" />

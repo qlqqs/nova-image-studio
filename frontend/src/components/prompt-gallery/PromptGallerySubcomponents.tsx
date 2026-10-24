@@ -9,6 +9,7 @@ import { runImageAction, dispatchImageActionToast, type ImageActionPayload } fro
 import { addTextAsset } from '@/lib/asset-store';
 import { useBodyScrollLock } from '@/lib/scroll-lock';
 import type { PromptGalleryItem } from '@/lib/prompt-gallery-types';
+import { AuthedImg } from '@/components/embed/AuthedImg';
 
 export type { PromptGalleryItem };
 
@@ -113,7 +114,7 @@ export const PromptCard = memo(function PromptCard({
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
               )}
-              <img
+              <AuthedImg
                 src={currentImageUrl}
                 alt={prompt.title}
                 className={`w-full h-full object-cover transition-opacity ${imageLoaded ? 'opacity-100' : 'opacity-0'}`}
@@ -667,7 +668,7 @@ export function PromptGalleryImagePreviewModal({
         onMouseLeave={handleMouseUp}
         style={{ cursor: dragging ? 'grabbing' : 'grab', willChange: 'transform, opacity' }}
       >
-        <img
+        <AuthedImg
           src={currentSrc}
           alt={title}
           draggable={false}

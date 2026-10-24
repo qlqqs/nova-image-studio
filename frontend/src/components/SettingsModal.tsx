@@ -50,6 +50,8 @@ import { checkModelsAvailability, type ModelStatus } from '@/lib/ccode-task-clie
 import { hasAnyApiKey } from '@/lib/settings-storage';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
 import { PROMPT_DATA_SOURCES, getPromptSourceLabel } from '@/lib/prompt-gallery-data';
+import { isEmbedMode } from '@/lib/embed/mode';
+import { EmbedSettingsModal } from '@/components/embed/EmbedSettingsModal';
 
 /** 设置弹层的页签。调用方可以指定打开时落在哪一页。 */
 export type SettingsTab = 'models' | 'plugins' | 'backup' | 'about';
@@ -112,7 +114,12 @@ function normalizeDefaults(
   };
 }
 
-export function SettingsModal({ isOpen, onClose, onApiKeyChange, initialTab = 'models' }: SettingsModalProps) {
+/** 嵌入模式（sub2api 创作工作台）换成「模型与密钥 / 插件（仅管理员）/ 备份」；独立模式保持原样。 */
+export function SettingsModal(props: SettingsModalProps) {
+  return isEmbedMode() ? <EmbedSettingsModal {...props} /> : <StandaloneSettingsModal {...props} />;
+}
+
+function StandaloneSettingsModal({ isOpen, onClose, onApiKeyChange, initialTab = 'models' }: SettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   // 每次打开都回到调用方指定的那一页：从「插件凭据未配置」的提示条点进来要直达插件页。
   // 用「渲染期按 prop 变化调整 state」而不是 effect，避免先渲染出模型页再跳一帧。

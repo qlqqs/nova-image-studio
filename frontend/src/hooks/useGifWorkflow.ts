@@ -30,6 +30,7 @@ import {
   type GptImageQuality,
   type GptImageStyle,
 } from '@/lib/model-capabilities';
+import { fetchAuthedImageObjectUrl, isProtectedImageUrl } from '@/lib/embed/authed-image';
 
 export interface SubmitInput {
   prompt: string;
@@ -124,7 +125,20 @@ export function useGifWorkflow(): UseGifWorkflowResult {
   const loadGridImageUrl = useCallback(async (target: ActiveGifJob): Promise<string | null> => {
     const ref = target.gridImageRef;
     if (!ref) return null;
-    if (ref.startsWith('URL:')) return ref.substring(4);
+    if (ref.startsWith('URL:')) {
+      const url = ref.substring(4);
+      // 嵌入模式：/api/nova/images/... 需会话鉴权，取成 blob URL（随 resolvedBlobUrlsRef 一并回收）
+      if (isProtectedImageUrl(url)) {
+        try {
+          const blobUrl = await fetchAuthedImageObjectUrl(url);
+          resolvedBlobUrlsRef.current.push(blobUrl);
+          return blobUrl;
+        } catch {
+          return null;
+        }
+      }
+      return url;
+    }
     if (ref.startsWith('IDB:') || ref.startsWith('blob:')) {
       const resolved = await resolveStoredImageRef(target.id, ref, 0);
       if (resolved.blobUrl) {

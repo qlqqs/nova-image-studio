@@ -75,6 +75,7 @@ import { CustomSizeDialog } from '@/components/CustomSizeDialog';
 
 import { MAX_UPLOAD_SIZE_BYTES } from '@/lib/constants';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 const MAX_AGENT_ASSET_IMPORTS = 5;
 const AGENT_PARAMS_KEY = 'nova-agent-params';
@@ -963,7 +964,7 @@ export function AgentChatWorkspace({
             </Button>
           )}
 
-          <Button
+          {!isEmbedMode() && <Button
             variant={agent.cdpEnabled ? 'default' : 'ghost'}
             size="sm"
             className={cn(
@@ -978,7 +979,7 @@ export function AgentChatWorkspace({
           >
             <Chrome className="h-4 w-4" />
             <span className="text-xs">浏览器</span>
-          </Button>
+          </Button>}
 
           {/* 意图识别开关 */}
           <Button

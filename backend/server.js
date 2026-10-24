@@ -18,6 +18,8 @@ const pluginRegistry = require('./plugin-runtime/registry');
 const pluginExecutor = require('./plugin-runtime/executor');
 const { validateAndNormalizeInput, InputError } = require('./plugin-runtime/input');
 const { createMediaStore } = require('./plugin-runtime/media');
+const { createEmbedSecurity, httpError: embedHttpError } = require('./embed/security');
+const { createPromptGallery } = require('./embed/prompt-gallery');
 
 const ENV_FILE_PATH = path.join(process.cwd(), '.env');
 const TASK_STATUS = {
@@ -91,12 +93,14 @@ function loadEnvFile() {
 }
 
 loadEnvFile();
+const embed = createEmbedSecurity();
 
 function normalizeBaseUrl(url) {
   return String(url || '').trim().replace(/\/+$/, '');
 }
 
 function normalizeProtocolBaseUrl(protocol, url) {
+  if (embed.enabled) return embed.gatewayUrl;
   const normalized = normalizeBaseUrl(url);
   if (!normalized) return '';
   if (protocol === 'google' || protocol === 'google-gemini') {
@@ -110,6 +114,7 @@ function normalizeProtocolBaseUrl(protocol, url) {
 }
 
 function resolveNovaApiBaseUrl() {
+  if (embed.enabled) return embed.gatewayUrl;
   return normalizeBaseUrl(getRuntimeEnv().NOVA_API_BASE_URL) || 'https://api.openai.com';
 }
 
@@ -122,7 +127,7 @@ function hashPromptGalleryPassword(password) {
 const PORT = Number(process.env.PORT || 3000);
 const HOSTNAME = process.env.HOSTNAME || '0.0.0.0';
 const DB_PATH = process.env.NOVA_TASK_DB || path.join(__dirname, 'nova-tasks.sqlite');
-const TASK_TTL_MS = (Number(process.env.NOVA_TASK_TTL_HOURS) || 12) * 60 * 60 * 1000;
+const TASK_TTL_MS = embed.enabled ? embed.retentionMs : (Number(process.env.NOVA_TASK_TTL_HOURS) || 12) * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const IMAGE_STREAM_ENABLED = String(process.env.NOVA_IMAGE_STREAM ?? 'true').toLowerCase() !== 'false';
@@ -149,8 +154,22 @@ const IS_DEV = process.env.NODE_ENV !== 'production';
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'out');
 const IMAGE_DIR = process.env.NOVA_IMAGE_DIR || path.join(__dirname, 'nova-images');
 // CDP 功能为启动级开关：默认关闭，显式置 true 时才提供 /api/nova/cdp/*。
-const CDP_ENABLED = String(process.env.NOVA_CDP_ENABLED ?? 'false').toLowerCase() === 'true';
+const CDP_ENABLED = !embed.enabled && String(process.env.NOVA_CDP_ENABLED ?? 'false').toLowerCase() === 'true';
 const CDP_DIR = process.env.NOVA_CDP_DIR || path.join(path.dirname(IMAGE_DIR), 'cdp-products');
+// Embedded mode: gallery sources come from GitHub via this server (CSP blocks browser-side fetches).
+const promptGallery = embed.enabled ? createPromptGallery({
+  cacheDir: process.env.NOVA_GALLERY_CACHE_DIR || path.join(path.dirname(IMAGE_DIR), 'prompt-gallery-cache'),
+  upstreamBase: process.env.NOVA_GALLERY_RAW_BASE || undefined,
+  fetchImpl: createGalleryFetch(process.env.NOVA_GALLERY_PROXY),
+}) : null;
+
+function createGalleryFetch(proxyUrl) {
+  if (!proxyUrl) return undefined;
+  // undici's own fetch: a dispatcher from the npm package must not be mixed with Node's bundled fetch.
+  const { ProxyAgent, fetch: undiciFetch } = require('undici');
+  const dispatcher = new ProxyAgent(proxyUrl);
+  return (url, init) => undiciFetch(url, { ...init, dispatcher });
+}
 const taskRefImages = new Map();
 
 // CDP 图片自动清理：保留最近 7 天或最多 100 张，防止无限累积
@@ -576,6 +595,7 @@ function cleanupRateLimitBuckets() {
 function enforceRateLimit(req, body, config) {
   const ip = getClientIp(req);
   const apiKeyHash = hashApiKey(body.apiKey);
+  if (embed.enabled) return { ip: req.novaUser.clientIp, apiKeyHash };
   const ipLimit = consumeRateLimit(`ip:${ip}`, config.maxRequestsPerIp, config.rateLimitWindowMs);
   if (!ipLimit.allowed) {
     throw createHttpError(429, 'RATE_LIMITED', LIMIT_ERROR_MESSAGES.rateLimited, Math.max(config.retryAfterSeconds, ipLimit.retryAfterSeconds));
@@ -588,6 +608,7 @@ function enforceRateLimit(req, body, config) {
 }
 
 function enforceQueueCapacity(source, config) {
+  if (embed.enabled) return;
   const stats = getQueueStats();
   if (stats.pendingCount >= config.maxQueueSize) {
     throw createHttpError(503, 'QUEUE_FULL', LIMIT_ERROR_MESSAGES.queueFull, config.retryAfterSeconds);
@@ -607,7 +628,20 @@ function isRejectNewTasksEnabled() {
   return ['1', 'true', 'yes', 'on'].includes(rejectSwitch) || acceptSwitch === 'false' || acceptSwitch === '0';
 }
 
-function getQueueStats() {
+function getQueueStats(user) {
+  if (embed.enabled && user) {
+    const rows = db.prepare('SELECT status, COUNT(*) AS count FROM tasks WHERE user_id = ? AND status IN (?, ?, ?) GROUP BY status')
+      .all(user.userId, TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED, TASK_STATUS.PROCESSING);
+    const counts = Object.fromEntries(rows.map(row => [row.status, Number(row.count)]));
+    const processingCount = counts[TASK_STATUS.PROCESSING] || 0;
+    const queuedCount = (counts[TASK_STATUS.QUEUED] || 0) + (counts[TASK_STATUS.LEGACY_QUEUED] || 0);
+    const acceptingNewTasks = !isShuttingDown && !isRejectNewTasksEnabled();
+    return {
+      processingCount, queuedCount, pendingCount: processingCount + queuedCount,
+      acceptingNewTasks, busy: activeCount >= getMaxServerConcurrency(),
+      serverMessage: acceptingNewTasks ? undefined : LIMIT_ERROR_MESSAGES.notAcceptingTasks,
+    };
+  }
   const config = getLimitConfig();
   const rows = db.prepare(`
     SELECT status, COUNT(*) AS count
@@ -772,7 +806,7 @@ function saveImageToDisk(taskId, itemIndex, subIndex, imageBuffer, mimeType) {
 }
 
 async function downloadUrlToDisk(taskId, itemIndex, subIndex, imageUrl) {
-  const response = await fetchWithTimeout(imageUrl, {});
+  const response = await fetchWithTimeout(imageUrl, {}, taskSources.get(taskId)?.ip);
   if (!response.ok) throw new Error(`远程图片下载失败: ${response.status}`);
   const contentType = response.headers.get('content-type') || 'image/png';
   const buffer = Buffer.from(await response.arrayBuffer());
@@ -853,6 +887,12 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tasks_expires_at ON tasks(expires_at);
     CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id);
   `);
+
+  // Existing standalone tasks stay unowned; never assign them to the first login.
+  if (!db.prepare('PRAGMA table_info(tasks)').all().some(column => column.name === 'user_id')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN user_id TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_user_created ON tasks(user_id, created_at)');
 
   // 插件素材表（plugin_media）与任务表同库，任务清理即素材清理
   pluginMedia.initSchema();
@@ -1074,12 +1114,13 @@ function normalizeGptImageAdvancedParams(params = {}) {
 function validateCreatePayload(body) {
   if (!body || typeof body !== 'object') throw new Error('请求体不能为空');
   if (typeof body.apiKey !== 'string' || body.apiKey.trim().length === 0) throw new Error('缺少 API 密钥');
+  if (embed.enabled) body.baseUrl = embed.gatewayUrl;
   if (typeof body.baseUrl !== 'string' || body.baseUrl.trim().length === 0) throw new Error('缺少 API 基础地址');
   if (!VALID_PROTOCOLS.has(body.protocol)) throw new Error(`协议类型无效，必须为 ${[...VALID_PROTOCOLS].join('、')}`);
   if (body.mode !== 'text-to-image' && body.mode !== 'image-to-image') throw new Error('任务模式无效');
   if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) throw new Error('提示词不能为空');
   if (typeof body.model !== 'string' || body.model.trim().length === 0) throw new Error('模型名称不能为空');
-  if (!Number.isInteger(body.parallelCount) || body.parallelCount < 1 || body.parallelCount > 8) throw new Error('并发数量无效');
+  if (!Number.isSafeInteger(body.parallelCount) || body.parallelCount < 1 || (!embed.enabled && body.parallelCount > 8)) throw new Error('并发数量无效');
 
   if (!Array.isArray(body.images)) body.images = [];
   body.baseUrl = normalizeProtocolBaseUrl(body.protocol, body.baseUrl);
@@ -1117,9 +1158,9 @@ function createTask(body, req) {
   };
   const tx = db.transaction(() => {
     db.prepare(`
-      INSERT INTO tasks (id, status, mode, request_json, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(taskId, TASK_STATUS.QUEUED, body.mode, JSON.stringify(requestForDb), now);
+      INSERT INTO tasks (id, status, mode, request_json, created_at, user_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(taskId, TASK_STATUS.QUEUED, body.mode, JSON.stringify(requestForDb), now, req.novaUser?.userId || null);
     const insertItem = db.prepare(`
       INSERT INTO task_items (task_id, item_index, status, created_at)
       VALUES (?, ?, ?, ?)
@@ -1591,7 +1632,8 @@ async function requestGptImage(apiKey, request, resolvedSize, options = {}) {
     : '/v1/images/generations';
   const response = await fetchWithTimeout(
     `${baseUrl}${endpoint}`,
-    createGptImageRequestInit(apiKey, request, resolvedSize, options)
+    createGptImageRequestInit(apiKey, request, resolvedSize, options),
+    request.clientIp
   );
   return parseGptImageResponse(response);
 }
@@ -1680,7 +1722,8 @@ async function requestGrokImage(apiKey, request, options = {}) {
     : '/v1/images/generations';
   const response = await fetchWithTimeout(
     `${baseUrl}${endpoint}`,
-    createGrokImageRequestInit(apiKey, request, options)
+    createGrokImageRequestInit(apiKey, request, options),
+    request.clientIp
   );
   return parseGptImageResponse(response);
 }
@@ -1699,7 +1742,7 @@ async function requestDoubaoImage(apiKey, request, options = {}) {
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
-  });
+  }, request.clientIp);
   return parseGptImageResponse(response);
 }
 
@@ -1718,7 +1761,7 @@ async function requestAlibabaDashScopeImage(apiKey, request, options = {}) {
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify(payload),
-  });
+  }, request.clientIp);
   if (!response.ok) {
     const text = await response.text();
     throw new Error(getErrorMessageFromPayload(parseJsonSafely(text)) || `HTTP ${response.status}: ${text.slice(0, 200)}`);
@@ -1763,7 +1806,8 @@ try {
   console.warn('[network] undici Agent 配置失败，使用默认设置:', e?.message || e);
 }
 
-async function fetchWithTimeout(url, init) {
+async function fetchWithTimeout(url, init, clientIp) {
+  if (embed.enabled) init = embed.prepareFetch(url, init, clientIp);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -1873,7 +1917,7 @@ async function generateNovaGeminiImage(apiKey, request, options = {}) {
         imageConfig,
       },
     }),
-  });
+  }, request.clientIp);
 
   if (!response.ok) {
     const errorText = getUpstreamErrorText(await response.text(), response.status);
@@ -1976,6 +2020,7 @@ async function runTask(taskId) {
 
 async function runTaskBody(taskId, task, apiKey) {
   const request = JSON.parse(task.request_json);
+  request.clientIp = taskSources.get(taskId)?.ip;
   const refImages = taskRefImages.get(taskId);
   if (refImages && refImages.length > 0) {
     request.images = refImages;
@@ -1990,12 +2035,16 @@ async function runTaskBody(taskId, task, apiKey) {
       .run(new Date().toISOString(), taskId, index);
   }
 
-  // 真正并发生成所有图片
-  const itemResults = await Promise.allSettled(
-    Array.from({ length: request.parallelCount }, (_, index) =>
-      generateSingleImage(apiKey, request, taskId, index)
-    )
-  );
+  // Embedded batches have no per-user image cap, but must respect server concurrency.
+  const itemResults = [];
+  const batchSize = embed.enabled ? getMaxServerConcurrency() : request.parallelCount;
+  for (let offset = 0; offset < request.parallelCount; offset += batchSize) {
+    itemResults.push(...await Promise.allSettled(
+      Array.from({ length: Math.min(batchSize, request.parallelCount - offset) }, (_, index) =>
+        generateSingleImage(apiKey, request, taskId, offset + index)
+      )
+    ));
+  }
 
   // 汇总结果
   const images = [];
@@ -2471,10 +2520,11 @@ function flushQueueBroadcast() {
   if (!queueBroadcastPending) return;
   queueBroadcastPending = false;
   if (queueSubscribers.size === 0) return;
-  const stats = getQueueStats();
-  const payload = { type: 'queueStatus', stats };
+  const statsByUser = new Map();
   for (const ws of queueSubscribers) {
-    safeSendJson(ws, payload);
+    const userId = ws.novaUser?.userId;
+    if (!statsByUser.has(userId)) statsByUser.set(userId, getQueueStats(ws.novaUser));
+    safeSendJson(ws, { type: 'queueStatus', stats: statsByUser.get(userId) });
   }
 }
 
@@ -2495,8 +2545,9 @@ function handleSubscribeTasks(ws, taskIds) {
     if (typeof id !== 'string' || !id) continue;
     // 已达单连接订阅上限且是新 id 时停止，避免无限增长。
     if (!set.has(id) && set.size >= WS_MAX_SUBSCRIPTIONS_PER_SOCKET) break;
-    set.add(id);
     const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
+    if (embed.enabled && !embed.ownsTask(row, ws.novaUser)) continue;
+    set.add(id);
     const task = serializeTask(row) || { id, status: 'expired', error: '该任务已超出取回时间' };
     safeSendJson(ws, { type: 'task', task });
     if (task.status === 'completed' || task.status === 'failed' || task.status === 'expired') {
@@ -2515,7 +2566,7 @@ function handleUnsubscribeTasks(ws, taskIds) {
 
 function handleSubscribeQueue(ws) {
   queueSubscribers.add(ws);
-  safeSendJson(ws, { type: 'queueStatus', stats: getQueueStats() });
+  safeSendJson(ws, { type: 'queueStatus', stats: getQueueStats(ws.novaUser) });
 }
 
 function handleClientMessage(ws, raw) {
@@ -2691,6 +2742,8 @@ function registerShutdownHandlers() {
  * 内置任务与插件任务共用同一段逻辑。
  */
 function ackTask(res, taskId) {
+  // Receiving a result must not shorten the promised seven-day retention.
+  if (embed.enabled) { sendJson(res, 200, { ok: true }); return; }
   const ACK_GRACE_MS = 120 * 1000;
   const existing = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
   if (existing) {
@@ -2704,9 +2757,34 @@ function ackTask(res, taskId) {
 async function handleApi(req, res, pathname, searchParams) {
   try {
     const apiPathname = pathname.replace(/\/+$/, '');
+    if (embed.enabled) {
+      req.novaUser = embed.requireUser(req);
+      if (apiPathname === '/api/nova/ws-ticket' && req.method === 'POST') {
+        sendJson(res, 200, embed.issueTicket(req.novaUser));
+        return true;
+      }
+      // Video/media are not part of phase one. Fail closed, including direct API calls.
+      if (/^\/api\/nova\/(?:plugin-tasks|plugin-media|cdp)(?:\/|$)/.test(apiPathname)) {
+        throw embedHttpError(404, 'NOT_FOUND');
+      }
+      if (apiPathname === '/api/nova/plugins' && (req.method !== 'GET' || searchParams?.get('reload') === '1')) {
+        embed.requireAdmin(req.novaUser);
+      }
+      if (promptGallery.isGalleryPath(apiPathname)) {
+        await promptGallery.handle(req, res, apiPathname, searchParams);
+        return true;
+      }
+      const ownedResource = apiPathname.match(/^\/api\/nova\/(?:tasks|images)\/([^/]+)/);
+      if (ownedResource) {
+        const task = db.prepare('SELECT user_id, expires_at FROM tasks WHERE id = ?').get(decodeURIComponent(ownedResource[1]));
+        if (!embed.ownsTask(task, req.novaUser) || (task.expires_at && Date.parse(task.expires_at) <= Date.now())) {
+          throw embedHttpError(404, 'NOT_FOUND');
+        }
+      }
+    }
 
     if (req.method === 'GET' && apiPathname === '/api/nova/queue-status') {
-      sendJson(res, 200, getQueueStats());
+      sendJson(res, 200, getQueueStats(req.novaUser));
       return true;
     }
 
@@ -2813,7 +2891,7 @@ async function handleApi(req, res, pathname, searchParams) {
         pipeFileToResponse(res, filePath, 200, {
           'Content-Type': getContentType(filePath),
           'Content-Length': stat.size,
-          'Cache-Control': 'private, max-age=3600',
+          'Cache-Control': embed.enabled ? 'private, no-store' : 'private, max-age=3600',
         });
       } catch {
         sendJson(res, 404, { error: 'Not Found' });
@@ -2831,7 +2909,7 @@ async function handleApi(req, res, pathname, searchParams) {
     // 前端已在模型选择器层过滤（见 isSliceCapableImageModel），这里再兜一次。
     if (req.method === 'POST' && apiPathname === '/api/nova/proxy/image-edit') {
       try {
-        const baseUrl = req.headers['x-nova-base-url'];
+        const baseUrl = embed.enabled ? embed.gatewayUrl : req.headers['x-nova-base-url'];
         const apiKey = req.headers['x-nova-api-key'];
         if (!baseUrl || !apiKey) {
           sendJson(res, 400, { error: 'Missing x-nova-base-url or x-nova-api-key' });
@@ -2854,7 +2932,7 @@ async function handleApi(req, res, pathname, searchParams) {
             'Authorization': `Bearer ${apiKey}`,
           },
           body: rawBody,
-        });
+        }, req.novaUser?.clientIp);
 
         // 响应可能是 JSON（b64_json / url）也可能是图片字节，一律按原样回传，
         // 由前端的 readImageResponse 统一判别。
@@ -2882,7 +2960,8 @@ async function handleApi(req, res, pathname, searchParams) {
     if (req.method === 'POST' && apiPathname === '/api/nova/proxy/text') {
       try {
         const body = await readJsonBody(req);
-        const { protocol, baseUrl, apiKey, model, stream, requestBody } = body;
+        const { protocol, apiKey, model, stream, requestBody } = body;
+        const baseUrl = embed.enabled ? embed.gatewayUrl : body.baseUrl;
         if (!baseUrl || !apiKey) {
           sendJson(res, 400, { error: 'Missing baseUrl or apiKey' });
           return true;
@@ -2932,7 +3011,7 @@ async function handleApi(req, res, pathname, searchParams) {
           method: 'POST',
           headers: authHeaders,
           body: JSON.stringify(forwardedBody),
-        });
+        }, req.novaUser?.clientIp);
 
         if (stream && upstream.ok) {
           res.writeHead(upstream.status, {
@@ -2982,6 +3061,7 @@ async function handleApi(req, res, pathname, searchParams) {
           apiKey = body.apiKey || headerApiKey || apiKey;
           protocol = body.protocol || protocol;
         }
+        if (embed.enabled) baseUrl = embed.gatewayUrl;
         if (!baseUrl || !apiKey) {
           sendJson(res, 400, { error: 'Missing baseUrl or apiKey' });
           return true;
@@ -3002,7 +3082,7 @@ async function handleApi(req, res, pathname, searchParams) {
           headers['Authorization'] = `Bearer ${apiKey}`;
         }
 
-        const response = await fetchWithTimeout(modelsUrl, { method: 'GET', headers });
+        const response = await fetchWithTimeout(modelsUrl, { method: 'GET', headers }, req.novaUser?.clientIp);
         let data = null;
         try { data = await response.json(); } catch { /* ignore */ }
         sendJson(res, response.status, data);
@@ -3468,6 +3548,7 @@ pluginRegistry.listPlugins();
 setInterval(cleanupExpiredTasks, CLEANUP_INTERVAL_MS).unref();
 setInterval(() => pluginMedia.cleanupExpired(), CLEANUP_INTERVAL_MS).unref();
 setInterval(cleanupRateLimitBuckets, CLEANUP_INTERVAL_MS).unref();
+if (embed.enabled) setInterval(embed.pruneTickets, 60000).unref();
 
 const startServer = () => {
   const wss = setupWebSocketServer();
@@ -3478,7 +3559,9 @@ const startServer = () => {
       if (handled || res.headersSent || res.writableEnded) return;
     }
     if (!IS_DEV) {
-      if (serveStatic(req, res, parsedUrl.pathname || '/')) return;
+      const staticPath = embed.enabled && /^\/_nova(?:\/|$)/.test(parsedUrl.pathname)
+        ? parsedUrl.pathname.slice('/_nova'.length) || '/' : parsedUrl.pathname;
+      if (serveStatic(req, res, staticPath || '/')) return;
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not Found');
       return;
@@ -3499,7 +3582,21 @@ const startServer = () => {
       return;
     }
     if (pathname === '/api/nova/ws') {
-      wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+      let user;
+      if (embed.enabled) {
+        try {
+          const ticket = new URL(req.url, 'http://localhost').searchParams.get('ticket');
+          user = embed.consumeTicket(req, ticket);
+        } catch {
+          // Do not establish an unauthenticated WebSocket, or log its query string.
+          socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+          return;
+        }
+      }
+      wss.handleUpgrade(req, socket, head, ws => {
+        ws.novaUser = user;
+        wss.emit('connection', ws, req);
+      });
       return;
     }
     if (nextUpgradeHandler) {

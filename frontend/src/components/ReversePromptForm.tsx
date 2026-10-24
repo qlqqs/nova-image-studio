@@ -44,6 +44,7 @@ import {
 
 import { MAX_UPLOAD_SIZE_BYTES } from '@/lib/constants';
 import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
+import { KEY_SETUP_ACTION } from '@/lib/embed/copy';
 
 const REVERSE_SETTINGS_KEY = 'nova-reverse-prompt-settings';
 
@@ -402,7 +403,7 @@ export function ReversePromptForm({ wideMode = false, disabled = false, onConfig
             <div className="max-w-md">
               <p className="text-base font-medium text-foreground">需要先配置令牌</p>
               <p className="mt-2 text-sm text-muted-foreground">
-                请先在设置中配置 Nova API 密钥，配置完成后即可使用反推提示词功能。
+                请先在设置中{KEY_SETUP_ACTION}，配置完成后即可使用反推提示词功能。
               </p>
             </div>
             <Button onClick={() => setMissingApiKeyDialogOpen(true)}>配置</Button>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { hasAnyApiKey } from '@/lib/settings-storage';
+import { isEmbedMode } from '@/lib/embed/mode';
 import { generateUUID } from '@/lib/uuid';
 import { createNovaTask, getNovaTask, resolveImageTaskProvider, type ImageReference } from '@/lib/ccode-task-client';
 import { fetchImageAsBlob } from '@/lib/image-downloader';
@@ -239,8 +240,9 @@ export function useAgentChat(sessionId = 'default') {
   const [webSearchEnabled, setWebSearchEnabled] = useState(() =>
     typeof localStorage !== 'undefined' ? localStorage.getItem('nova-agent-web-search') === 'true' : false
   );
+  // 嵌入模式强制关闭 CDP 浏览器自动化（docs/sub2api-embed.md §7）
   const [cdpEnabled, setCdpEnabled] = useState(() =>
-    typeof localStorage !== 'undefined' ? localStorage.getItem('nova-agent-cdp') === 'true' : false
+    !isEmbedMode() && typeof localStorage !== 'undefined' ? localStorage.getItem('nova-agent-cdp') === 'true' : false
   );
   const [intentRecognition, setIntentRecognition] = useState(() =>
     typeof localStorage !== 'undefined' ? localStorage.getItem('nova-agent-intent-recognition') !== 'false' : true
@@ -1484,6 +1486,7 @@ export function useAgentChat(sessionId = 'default') {
   }, [agentSupportsWebSearch]);
 
   const toggleCdp = useCallback(() => {
+    if (isEmbedMode()) return;
     setCdpEnabled(prev => {
       const next = !prev;
       try { localStorage.setItem('nova-agent-cdp', String(next)); } catch { /* ignore */ }

@@ -1,4 +1,7 @@
 import { getNovaTask, getNovaQueueStatus, type NovaTaskResponse, type NovaQueueStatus } from '@/lib/ccode-task-client';
+import { isEmbedMode } from '@/lib/embed/mode';
+import { buildEmbedSocketUrl } from '@/lib/embed/ws-ticket';
+import { inspectEmbedTaskPayload } from '@/lib/embed/task-events';
 
 type TaskUpdateHandler = (task: NovaTaskResponse) => void;
 type QueueUpdateHandler = (stats: NovaQueueStatus) => void;
@@ -61,6 +64,7 @@ class NovaTaskSocket {
   private fallbackActive = false;
   private explicitlyDisabled = false;
   private listenersBound = false;
+  private ticketPending = false;
 
   /** 在浏览器端确保连接已开始（idempotent） */
   ensureConnected(): void {
@@ -177,12 +181,33 @@ class NovaTaskSocket {
       this.activateFallback();
       return;
     }
+    // 嵌入模式：每次（重）连先换一次性 ticket，JWT 不进 URL
+    if (isEmbedMode()) {
+      if (this.ticketPending) return;
+      this.ticketPending = true;
+      void buildEmbedSocketUrl().then(
+        (ticketUrl) => {
+          this.ticketPending = false;
+          if (this.explicitlyDisabled || this.fallbackActive) return;
+          if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+          this.openSocket(ticketUrl);
+        },
+        () => {
+          this.ticketPending = false;
+          this.handleConnectFailure();
+        },
+      );
+      return;
+    }
     const url = buildSocketUrl();
     if (!url) {
       this.activateFallback();
       return;
     }
+    this.openSocket(url);
+  }
 
+  private openSocket(url: string): void {
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
@@ -312,7 +337,7 @@ class NovaTaskSocket {
       return;
     }
     if (message.type === 'task') {
-      const task = message.task;
+      const task = inspectEmbedTaskPayload(message.task);
       if (!task || typeof task.id !== 'string') return;
       const handlers = this.taskHandlers.get(task.id);
       if (!handlers) return;

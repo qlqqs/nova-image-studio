@@ -14,6 +14,8 @@ import {
   normalizeProviderBaseUrl,
   type ProviderConfig,
 } from '@/lib/provider-registry';
+import { isEmbedMode } from '@/lib/embed/mode';
+import { getEmbedRegistry, mergeEmbedRegistryDefaults } from '@/lib/embed/registry-store';
 
 export type ProviderProtocol = 'google' | 'openai' | 'grok' | 'doubao' | 'alibaba-dashscope';
 export type ImageOutputSize = '512' | '1K' | '2K' | '4K';
@@ -603,6 +605,8 @@ export function loadRegistry(): NovaModelRegistry {
   if (typeof window === 'undefined') {
     return getInitialRegistry();
   }
+  // 嵌入模式：注册表由「模型与密钥」的选择在内存中生成，不读 localStorage
+  if (isEmbedMode()) return getEmbedRegistry();
 
   const raw = localStorage.getItem(REGISTRY_KEY);
   if (!raw) {
@@ -614,6 +618,11 @@ export function loadRegistry(): NovaModelRegistry {
 
 export function saveRegistry(registry: NovaModelRegistry): void {
   if (typeof window === 'undefined') return;
+  // 嵌入模式：不写 localStorage，只接受默认模型的切换
+  if (isEmbedMode()) {
+    mergeEmbedRegistryDefaults(registry);
+    return;
+  }
   const normalized = hydrateRegistry(registry);
   localStorage.setItem(REGISTRY_KEY, JSON.stringify(normalized));
 }
