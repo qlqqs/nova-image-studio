@@ -127,7 +127,7 @@ Nova 规则：
 - 深浅色跟随控制台（父页切换时重发会话，`applyEmbedTheme` 同步 `dark` 类）；嵌入模式按控制台 token 覆盖配色（`globals.css` 末尾 `html[data-nova-embed]` 规则：主色、白 / 藏青底、1px 淡线，上传区灰色细虚线，输入卡片无阴影），队列状态标签在嵌入模式隐藏。
 - 换账号：A 退出后 B 打开工作台看不到 A 的设置，本地存储按 `u<userId>:` 分区。
 - sub2api 侧 e2e（`sub2api-local/e2e/p8_studio.py`，STU-00..16）覆盖：扣费与 IP、跨用户隔离、嵌入策略头、插件管理仅管理员、视频接口关闭、广场白名单拒绝、Nova 停机返回 503 并能恢复。
-- 尚未完成：CI 镜像、一号机部署（部署前确认一号机容器能连 GitHub 与图床，否则设 `NOVA_GALLERY_PROXY`）。
+- 镜像与一号机部署见第 13 节。
 
 ```bash
 cd backend
@@ -138,3 +138,14 @@ npm run lint
 ```
 
 所有集成桩只绑定 `127.0.0.1`，数据库与图片目录位于测试专属临时目录，不连接 sub2api-local、生产或官方 API。
+
+## 13. 镜像与部署
+
+- 镜像：`docker/sub2api-embed.Dockerfile`（前端以 `NEXT_PUBLIC_NOVA_EMBED=1` 构建，默认 `NOVA_EMBED_MODE=1`、`NOVA_CDP_ENABLED=false`，数据在 `/data`，以 `node` 用户运行）。
+- CI：`.github/workflows/custom-image.yml`，推送 `sub2api-custom` 后先跑后端 `node --test`、前端嵌入目录的 eslint 与全部 vitest，通过后推送 `ghcr.io/qlqqs/nova-image-studio:custom-latest` 与 `:custom-<sha7>`（amd64）。只改 `docs/` 或 `*.md` 不触发。上游代码本身有 eslint 错误，所以 CI 不跑全量 lint。
+- fork 默认分支为 `sub2api-custom`；上游的 `desktop-release` 在 GitHub Actions 设置里已禁用（是设置状态，不在文件里），合并上游后如有新增工作流同样要禁用。
+- 一号机（项目 `sub2api-custom`）：
+  - `/root/sub2api-custom`：sub2api 接入共享网络 `sub2api-custom-studio`（192.168.240.0/24），`.env` 设 `STUDIO_NOVA_URL=http://nova-studio:3000`；
+  - `/root/sub2api-custom-nova`：compose 项目 `sub2api-custom-nova`，容器 `sub2api-custom-nova`，数据在该目录 `./data`（属主 uid 1000），不映射宿主机端口，`SUB2API_GATEWAY_URL=http://sub2api-custom:8080`，`NOVA_TRUSTED_PROXY_CIDRS=192.168.240.0/24`；
+  - 一号机可直连 GitHub 与图床，`NOVA_GALLERY_PROXY` 留空；
+  - 更新：在 `/root/sub2api-custom-nova` 执行 `docker compose pull && docker compose up -d`。同机另有一个上游版 `nova-image-studio` 容器，与本项目无关，不要改动。
