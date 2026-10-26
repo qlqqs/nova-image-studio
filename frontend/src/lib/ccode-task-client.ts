@@ -1,3 +1,4 @@
+import { gatewayErrorText } from '@/lib/embed/gateway-errors';
 import type { AspectRatio, OutputSize } from '@/lib/gemini-config';
 import type { GptImageBackground, GptImageQuality, GptImageStyle } from '@/lib/model-capabilities';
 import {
@@ -114,7 +115,7 @@ async function parseTaskResponse<T>(response: Response): Promise<T> {
     const code = getObjectProperty(data, 'code');
     const retryAfter = getObjectProperty(data, 'retryAfter');
     throw new NovaTaskError(
-      typeof error === 'string' ? error : `任务请求失败: ${response.status}`,
+      gatewayErrorText(error) || gatewayErrorText(data) || `任务请求失败: ${response.status}`,
       response.status,
       typeof code === 'string' ? code : undefined,
       typeof retryAfter === 'number' ? retryAfter : undefined,

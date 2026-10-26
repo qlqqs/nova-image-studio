@@ -185,3 +185,20 @@ export async function listGatewayModels(apiKey: string, fetchFn: FetchFn = getFe
   }
   return Array.from(ids);
 }
+
+export interface WorkbenchDefaults {
+  eligible: boolean;
+  initialized: boolean;
+  group_id: number;
+  group_name: string;
+  preferences: import('./embed-registry').StudioPrefs;
+  text_model: string;
+  image_model: string;
+  reasoning_effort: string;
+  reasoning_allowed?: boolean;
+}
+export const getWorkbenchDefaults = () => call<WorkbenchDefaults>('/user/workbench/studio');
+export const saveWorkbenchPrefs = (preferences: import('./embed-registry').StudioPrefs, initialize = false) =>
+  call<import('./embed-registry').StudioPrefs>('/user/workbench/studio', {
+    method: initialize ? 'POST' : 'PUT', body: JSON.stringify({ preferences }),
+  });

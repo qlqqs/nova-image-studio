@@ -1,5 +1,6 @@
 'use client';
 
+import { workbenchReasoningEffort } from '@/lib/embed/workbench-defaults';
 import type { TextProviderProtocol } from '@/lib/nova-text-protocol';
 
 export type TextContentPart =
@@ -17,11 +18,13 @@ export function buildSimpleProxyTextRequestBody(
     maxTokens?: number;
   } = {},
 ) {
-  const { stream = false, systemInstruction, reasoningEffort, maxTokens } = options;
+  const { stream = false, systemInstruction, maxTokens } = options;
+  const reasoningEffort = workbenchReasoningEffort(model) ?? options.reasoningEffort;
 
   if (protocol === 'openai-chat-completions') {
     return {
       model,
+      ...(workbenchReasoningEffort(model) ? { reasoning_effort: workbenchReasoningEffort(model) } : {}),
       ...(stream ? { stream: true } : {}),
       messages: [
         ...(systemInstruction ? [{ role: 'system' as const, content: systemInstruction }] : []),

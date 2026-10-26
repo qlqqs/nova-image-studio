@@ -8,7 +8,7 @@ import { buildTicketSocketUrl } from '@/lib/embed/ws-ticket';
 describe('网关错误转中文', () => {
   it.each([
     ['403 INSUFFICIENT_BALANCE Insufficient account balance', 'insufficient_balance'],
-    ['{"error":{"type":"insufficient_quota","message":"x"}}', 'insufficient_balance'],
+    ['{"error":{"type":"insufficient_quota","message":"x"}}', 'key_quota_exhausted'],
     ['429 API_KEY_QUOTA_EXHAUSTED', 'key_quota_exhausted'],
     ['401 INVALID_API_KEY Invalid API key', 'invalid_key'],
     ['API key is disabled', 'invalid_key'],
@@ -50,4 +50,15 @@ describe('WebSocket ticket', () => {
     expect(buildTicketSocketUrl('abc_123', 'https://console.example.com/_nova/?embedded=1')).toBe('wss://console.example.com/api/nova/ws?ticket=abc_123');
     expect(buildTicketSocketUrl('t', 'http://127.0.0.1:28080/_nova/')).toBe('ws://127.0.0.1:28080/api/nova/ws?ticket=t');
   });
+});
+
+it('structured 403 preserves balance code, unrelated 403 is not a recharge error', () => {
+  setEmbedModeForTests(true);
+  expect(inspectEmbedTaskPayload({ error: { code: 'INSUFFICIENT_BALANCE', message: 'Forbidden' } }).error)
+    .toBe('账户余额不足，请充值后重试');
+  expect(localizeGatewayError('HTTP 403')).toBeNull();
+  expect(localizeGatewayError('HTTP 402')).toBeNull();
+  const other = { error: { code: 'FORBIDDEN', message: 'No permission' } };
+  expect(inspectEmbedTaskPayload(other)).toBe(other);
+  setEmbedModeForTests(null);
 });

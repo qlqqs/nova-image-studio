@@ -21,12 +21,12 @@ export interface LocalizedGatewayError {
 const RULES: Array<{ kind: GatewayErrorKind; pattern: RegExp; message: string }> = [
   {
     kind: 'insufficient_balance',
-    pattern: /insufficient[_ ]?(account[_ ]?)?balance|insufficient_quota|余额不足|balance (is )?(not enough|insufficient)|\b402\b/i,
+    pattern: /insufficient[_ ]?(account[_ ]?)?balance|余额不足|balance (is )?(not enough|insufficient)/i,
     message: '账户余额不足，请充值后重试',
   },
   {
     kind: 'key_quota_exhausted',
-    pattern: /api_key_quota_exhausted|key quota (has been )?exhausted|quota[_ ]exhausted|额度已用完/i,
+    pattern: /api_key_quota_exhausted|insufficient_quota|key quota (has been )?exhausted|quota[_ ]exhausted|额度已用完/i,
     message: 'API 密钥额度已用完，请在「模型与密钥」中更换密钥或在控制台调整额度',
   },
   {
@@ -73,4 +73,14 @@ export function localizeGatewayError(raw: string | null | undefined): LocalizedG
 /** 返回中文提示；未识别时返回原文。 */
 export function localizeGatewayErrorText(raw: string): string {
   return localizeGatewayError(raw)?.message ?? raw;
+}
+
+/** Preserve structured gateway codes; a status alone is not a billing diagnosis. */
+export function gatewayErrorText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (!value || typeof value !== 'object') return '';
+  const row = value as Record<string, unknown>;
+  return [row.code, row.type, row.message, row.detail, row.error]
+    .map(v => typeof v === 'string' ? v : v && typeof v === 'object' ? gatewayErrorText(v) : '')
+    .filter(Boolean).join(' ');
 }

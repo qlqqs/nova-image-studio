@@ -2,13 +2,17 @@
  * 嵌入模式的用户态：Key 列表（内存）、设置页选择的应用、启动时生成注册表。
  * Key 明文只放在本模块与内存注册表里，revoke 时清空。
  */
-import { getCurrentUser, listGatewayModels, listKeys, type Sub2ApiKey } from '@/lib/embed/sub2api-client';
+import { getCurrentUser, listGatewayModels, listKeys, getWorkbenchDefaults, saveWorkbenchPrefs, type Sub2ApiKey } from '@/lib/embed/sub2api-client';
 import { isHiddenModel, keyUnavailableReason, modelsForPurpose, pickDefaultModel } from '@/lib/embed/key-policy';
 import { buildEmbedRegistry, loadStudioPrefs, saveStudioPrefs, type StudioPrefs } from '@/lib/embed/embed-registry';
 import { clearEmbedRegistry, setEmbedRegistry } from '@/lib/embed/registry-store';
 import { setBalanceFromUser } from '@/lib/embed/balance';
 import { clearPlazaCache, loadPlazaGroups } from '@/lib/embed/cost-estimate';
 
+import { defaultWorkbenchKey, defaultStudioPrefs, setWorkbenchTextDefault } from './workbench-defaults';
+import { showEmbedNotice } from './notices';
+let persistentPrefs = false;
+let sessionGeneration = 0;
 let keys: Sub2ApiKey[] = [];
 let prefs: StudioPrefs = {};
 // 各 Key 在网关上的模型列表（/v1/models），按会话缓存；重新读取 Key 列表或 revoke 时清空
@@ -85,8 +89,11 @@ export function setStudioKeys(next: Sub2ApiKey[]): Promise<void> {
 }
 
 /** 设置页修改某一行（或清空）。只持久化 { keyId, model }。 */
-export function applyStudioPrefs(next: StudioPrefs): Promise<void> {
-  prefs = { ...next };
+export async function applyStudioPrefs(next: StudioPrefs): Promise<void> {
+  const generation = sessionGeneration;
+  const saved = persistentPrefs ? await saveWorkbenchPrefs(next) : next;
+  if (generation !== sessionGeneration) return;
+  prefs = { ...saved };
   saveStudioPrefs(prefs);
   return rebuildRegistry();
 }
@@ -99,12 +106,39 @@ export async function refreshStudioKeys(): Promise<Sub2ApiKey[]> {
 
 /** 会话到达后：校验用户、读余额、读 Key、按已保存的选择生成注册表。 */
 export async function bootstrapStudio(expectedUserId: number): Promise<void> {
-  const [user, keyList] = await Promise.all([getCurrentUser(), listKeys()]);
+  const generation = ++sessionGeneration;
+  const [user, keyList, defaults] = await Promise.all([getCurrentUser(), listKeys(), getWorkbenchDefaults().catch(() => null)]);
+  if (generation !== sessionGeneration) return;
   if (Number(user?.id) !== expectedUserId) throw new Error('登录状态已变化，请刷新页面');
   setBalanceFromUser(Number(user.balance));
   prefs = loadStudioPrefs();
   keys = keyList;
   keyModels = new Map();
+  persistentPrefs = Boolean(defaults?.eligible || defaults?.initialized);
+  setWorkbenchTextDefault(defaults?.eligible ? defaults.text_model : null);
+  if (defaults?.initialized) {
+    prefs = defaults.preferences ?? {};
+    saveStudioPrefs(prefs);
+  } else if (defaults?.eligible) {
+    const hasExisting = Boolean(prefs.image || prefs.text);
+    if (!hasExisting) {
+      const key = defaultWorkbenchKey(keys, defaults);
+      if (!key) {
+        showEmbedNotice({ kind: 'info', message: '请在「模型与密钥」中配置 Key' });
+      } else {
+        const available = await modelsOfKey(key);
+        if (generation !== sessionGeneration) return;
+        prefs = defaultStudioPrefs(key, available, defaults);
+        if (!prefs.image || !prefs.text) {
+          showEmbedNotice({ kind: 'info', message: '默认模型不可用，请选择其他模型' });
+        }
+      }
+    }
+    const saved = await saveWorkbenchPrefs(prefs, true);
+    if (generation !== sessionGeneration) return;
+    prefs = saved;
+    saveStudioPrefs(prefs);
+  }
   await replaceHiddenTextModel();
   await rebuildRegistry();
 }
@@ -125,6 +159,9 @@ async function replaceHiddenTextModel(): Promise<void> {
 
 /** revoke：清空内存中的 Key 与注册表。 */
 export function resetStudioState(): void {
+  sessionGeneration++;
+  persistentPrefs = false;
+  setWorkbenchTextDefault(null);
   keys = [];
   prefs = {};
   keyModels = new Map();
