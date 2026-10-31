@@ -2,6 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { findModel, type InstalledPlugin } from '@/lib/plugin-schema';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', USD: '$', EUR: '€' };
 
@@ -13,6 +14,7 @@ function symbolFor(currency?: string): string {
 /**
  * 单价标签。价格来自插件 manifest 的申报值——开源版不代理任何上游价格接口。
  * 未申报时整个标签不渲染：显示「未申报」既占地方又像是出了错，不如让这一处安静消失。
+ * 嵌入模式按所选 Key 分组的模型广场价格在提交栏预估，这里不显示申报价。
  */
 export function PluginPriceTag({
   plugin,
@@ -24,7 +26,7 @@ export function PluginPriceTag({
   className?: string;
 }) {
   const price = findModel(plugin, modelId)?.price;
-  if (!price) return null;
+  if (!price || isEmbedMode()) return null;
   const unit = price.unit === 'per-second' ? '/秒' : '/次';
   return (
     <span className={cn('font-mono text-[10px] tabular-nums text-muted-foreground', className)}>

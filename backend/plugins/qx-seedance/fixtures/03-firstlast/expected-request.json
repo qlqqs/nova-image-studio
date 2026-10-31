@@ -1,0 +1,33 @@
+{
+  "model": "seedance-2.5",
+  "method": "POST",
+  "url": "https://upstream.test/api/v3/contents/generations/tasks",
+  "body": {
+    "model": "seedance-2.5",
+    "content": [
+      {
+        "type": "text",
+        "text": "一只猫"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://host.test/api/nova/plugin-media/first.png"
+        },
+        "role": "first_frame"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/last.png"
+        },
+        "role": "last_frame"
+      }
+    ],
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "generate_audio": true,
+    "watermark": false,
+    "duration": 5
+  }
+}

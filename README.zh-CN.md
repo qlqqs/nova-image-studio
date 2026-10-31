@@ -128,7 +128,7 @@ Nova Studio 是一个面向个人/团队的 AI 视频/图像生成工作台。�
 - **出网需申报**：`permissions.hosts` 之外的主机、以及所有内网地址一律被拒绝
 - **凭据属于用户**：apiKey / baseUrl 在「设置 → 插件」里填，存浏览器，不入库
 - **设置页只读**：只展示已装了哪些插件与加载失败的原因，装卸插件需要管理员操作服务器目录
-- **参考实现**：`backend/plugins/ccode-h3/`（MiniMax H3，8 个模型、首尾帧、参考图/视频/音频、超分档位）
+- **参考实现**：`backend/plugins/qx-seedance/`（Seedance 2.0 / 2.5，六种模式、参考图/视频/音频）
 - **产物地址原样透传**：不替上游改写域名，视频链接就是上游返回的原生地址
 
 📦 **官方插件合集：[nova-studio-plugins](https://github.com/tianjiangqiji/nova-studio-plugins)**
@@ -229,7 +229,7 @@ nova-image-studio/
 │   ├── server.js             # Node 服务（HTTP + WS + SQLite + 任务队列）
 │   ├── plugin-runtime/       # 视频插件运行时：注册表、校验、模板、执行、素材、自检 CLI
 │   ├── plugins/              # 已安装的视频插件（管理员放置）
-│   │   └── ccode-h3/         # 参考实现：MiniMax H3
+│   │   └── qx-seedance/         # 参考实现：Seedance
 │   ├── prompts.json          # 提示词广场内容
 │   ├── blacklist.json        # 敏感词
 │   ├── .env.example
@@ -279,7 +279,7 @@ cp backend/prompts.json prompts.json
 mkdir -p data
 mkdir -p plugins
 # 把内置插件复制到宿主机（挂载会覆盖镜像内插件目录，不复制的话内置插件会消失）
-cp -r backend/plugins/ccode-h3 plugins/
+cp -r backend/plugins/qx-seedance plugins/
 
 # 4. 启动服务
 docker compose up -d

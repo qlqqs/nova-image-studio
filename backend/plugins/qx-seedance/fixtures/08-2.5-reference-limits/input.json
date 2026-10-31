@@ -1,0 +1,55 @@
+{
+  "facets": {
+    "targetModel": "seedance-2.5",
+    "mode": "reference"
+  },
+  "fields": {
+    "prompt": "一只猫"
+  },
+  "media": {
+    "referenceImages": [
+      "https://media.test/image-1.png",
+      "https://media.test/image-2.png",
+      "https://media.test/image-3.png",
+      "https://media.test/image-4.png",
+      "https://media.test/image-5.png",
+      "https://media.test/image-6.png",
+      "https://media.test/image-7.png",
+      "https://media.test/image-8.png",
+      "https://media.test/image-9.png",
+      "https://media.test/image-10.png",
+      "https://media.test/image-11.png",
+      "https://media.test/image-12.png",
+      "https://media.test/image-13.png",
+      "https://media.test/image-14.png",
+      "https://media.test/image-15.png",
+      "https://media.test/image-16.png",
+      "https://media.test/image-17.png",
+      "https://media.test/image-18.png",
+      "https://media.test/image-19.png",
+      "https://media.test/image-20.png",
+      "https://media.test/image-21.png",
+      "https://media.test/image-22.png",
+      "https://media.test/image-23.png",
+      "https://media.test/image-24.png",
+      "https://media.test/image-25.png",
+      "https://media.test/image-26.png",
+      "https://media.test/image-27.png",
+      "https://media.test/image-28.png",
+      "https://media.test/image-29.png",
+      "https://media.test/image-30.png"
+    ],
+    "referenceAudios": [
+      "https://media.test/audio-1.mp3",
+      "https://media.test/audio-2.mp3",
+      "https://media.test/audio-3.mp3",
+      "https://media.test/audio-4.mp3",
+      "https://media.test/audio-5.mp3",
+      "https://media.test/audio-6.mp3",
+      "https://media.test/audio-7.mp3",
+      "https://media.test/audio-8.mp3",
+      "https://media.test/audio-9.mp3",
+      "https://media.test/audio-10.mp3"
+    ]
+  }
+}

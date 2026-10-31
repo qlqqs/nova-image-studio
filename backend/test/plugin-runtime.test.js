@@ -4,16 +4,16 @@ const test = require('node:test');
 const { resolveTemplate } = require('../plugin-runtime/template');
 const { classifyStatus, extractProgress, normalizeResult, pickFirstString } = require('../plugin-runtime/extract');
 const { validatePluginPackage } = require('../plugin-runtime/validate');
-const { validateAndNormalizeInput, resolveModelFromFacets, InputError } = require('../plugin-runtime/input');
+const { validateAndNormalizeInput, resolveModelFromFacets, isOptionAvailable, InputError } = require('../plugin-runtime/input');
 const { buildContext, assertUrlAllowed, isLocallyScopedHost } = require('../plugin-runtime/executor');
 const { verifyPlugin } = require('../plugin-runtime/verify');
 const registry = require('../plugin-runtime/registry');
 
-const H3 = 'ccode-h3';
+const PLUGIN_ID = 'qx-seedance';
 
-function h3Plugin() {
-  const plugin = registry.getPlugin(H3);
-  assert.ok(plugin, `插件 ${H3} 应能加载成功。加载失败原因: ${JSON.stringify(registry.listFailures())}`);
+function seedancePlugin() {
+  const plugin = registry.getPlugin(PLUGIN_ID);
+  assert.ok(plugin, `插件 ${PLUGIN_ID} 应能加载成功。加载失败原因: ${JSON.stringify(registry.listFailures())}`);
   return plugin;
 }
 
@@ -114,343 +114,208 @@ test('产物归一化：URL 改写与 fallback', () => {
   assert.equal(fallback.assets[0].url, 'https://cdn.test/v1/videos/task-1/content');
 });
 
-test('没有 rewriteHosts 时产物地址原样保留', () => {
-  // ccode-h3 刻意不做域名改写：产物用上游返回的原生地址
-  const plugin = h3Plugin();
-  assert.equal(plugin.provider.poll.result.rewriteHosts, undefined);
-  const normalized = normalizeResult(
-    { video_url: 'https://out.upstream.test/a.mp4' },
-    plugin.provider.poll.result,
-    { upstreamTaskId: 'x', baseUrl: 'https://pro.ccode.vip' },
-    resolveTemplate,
-  );
-  assert.equal(normalized.assets[0].url, 'https://out.upstream.test/a.mp4');
-});
-
-// ===== 校验器 =====
-
-test('校验器指出具体是哪个字段写错了', () => {
-  const result = validatePluginPackage({
-    manifest: { apiVersion: 1, id: 'Bad_Id', name: '', version: 'x', kind: 'audio' },
-    uiSchema: { apiVersion: 2 },
-    provider: {},
-    dirName: 'bad-id',
-  });
-  assert.equal(result.ok, false);
-  assert.match(result.message, /manifest\.id/);
-  assert.match(result.message, /manifest\.version/);
-  assert.match(result.message, /manifest\.kind/);
-  assert.match(result.message, /ui\.schema\.apiVersion/);
-  assert.match(result.message, /provider\.submit/);
-});
-
-test('manifest.id 必须与目录名一致', () => {
-  const plugin = h3Plugin();
-  const result = validatePluginPackage({
-    manifest: plugin.manifest,
-    uiSchema: plugin.uiSchema,
-    provider: plugin.provider,
-    dirName: 'other-dir',
-  });
-  assert.equal(result.ok, false);
-  assert.match(result.message, /必须与插件目录名/);
-});
-
-test('variants 引用未申报的模型会被拦下', () => {
-  const plugin = h3Plugin();
-  const uiSchema = JSON.parse(JSON.stringify(plugin.uiSchema));
-  uiSchema.modelSelector.variants[0].model = 'not-declared';
-  const result = validatePluginPackage({
-    manifest: plugin.manifest, uiSchema, provider: plugin.provider, dirName: H3,
-  });
-  assert.equal(result.ok, false);
-  assert.match(result.message, /未在 manifest\.models 中申报/);
-});
-
-// ===== 注册表 + H3 插件包 =====
-
-test('ccode-h3 插件通过全部校验并被加载', () => {
-  const plugin = h3Plugin();
-  assert.equal(plugin.manifest.models.length, 8);
-  assert.equal(plugin.uiSchema.modelSelector.variants.length, 8);
-  assert.ok(plugin.allowedHosts.has('pro.ccode.vip'));
-});
-
-test('下发给前端的描述不含 provider 模板', () => {
-  const described = registry.describeForClient(h3Plugin());
-  assert.equal(described.provider, undefined);
-  assert.equal(described.models.length, 8);
-  assert.equal(described.models[0].price.unit, 'per-second');
-  assert.ok(described.uiSchema.modelSelector);
-});
-
-// ===== facet 反解模型 =====
-
-test('facet 组合反解模型 ID', () => {
-  const { uiSchema } = h3Plugin();
-  assert.equal(resolveModelFromFacets(uiSchema, { tier: 'standard', resolution: '1080P' }), 'minimax-h3-original-1080p');
-  assert.equal(resolveModelFromFacets(uiSchema, { tier: 'lite', resolution: '768P' }), 'minimax-h3-quantized-768p');
-  // 漫画版没有 1080P
-  assert.equal(resolveModelFromFacets(uiSchema, { tier: 'comic', resolution: '1080P' }), null);
-});
-
-// ===== 入参校验 =====
-
-const MEDIA = kind => `https://host.test/api/nova/plugin-media/${kind}.png`;
+// ===== Seedance 插件与输入契约 =====
 
 function baseInput(overrides = {}) {
-  return {
-    facets: { tier: 'standard', resolution: '768P' },
-    fields: { mode: 'multi-reference', aspectRatio: '9:16', seconds: 8, prompt: '一只猫' },
-    media: {},
-    ...overrides,
-  };
+  return { facets: { targetModel: 'seedance-2.5', mode: 't2v' },
+    fields: { prompt: '一只猫' }, media: {}, ...overrides };
 }
 
-test('合规入参归一化后只保留可见字段', () => {
-  const result = validateAndNormalizeInput(h3Plugin(), baseInput());
-  assert.equal(result.model, 'minimax-h3-original-768p');
-  assert.deepEqual(result.fields, { mode: 'multi-reference', aspectRatio: '9:16', seconds: 8, prompt: '一只猫' });
-  assert.deepEqual(result.media, {});
-});
-
-test('不可见字段的残留值被丢弃', () => {
-  const result = validateAndNormalizeInput(h3Plugin(), baseInput({
-    // 全能参考模式下首尾帧不可见，切档位残留的素材不应被提交
-    media: { firstFrame: [MEDIA('a')] },
-  }));
-  assert.equal(result.media.firstFrame, undefined);
-});
-
-test('2K / 4K 必须带参考图', () => {
-  const plugin = h3Plugin();
-  assert.throws(
-    () => validateAndNormalizeInput(plugin, baseInput({ facets: { tier: 'standard', resolution: '2K' } })),
-    /参考图片.*必填/,
-  );
-  const ok = validateAndNormalizeInput(plugin, baseInput({
-    facets: { tier: 'standard', resolution: '2K' },
-    media: { multiImage: [MEDIA('a')] },
-  }));
-  assert.equal(ok.model, 'minimax-h3-original-cf-2k');
-});
-
-test('首尾帧模式必须有首帧，尾帧可选', () => {
-  const plugin = h3Plugin();
-  const fl2v = overrides => baseInput({
-    fields: { mode: 'first-last-frame', aspectRatio: '9:16', seconds: 8, prompt: 'p' },
-    ...overrides,
-  });
-  assert.throws(() => validateAndNormalizeInput(plugin, fl2v()), /首帧.*必填/);
-  const ok = validateAndNormalizeInput(plugin, fl2v({ media: { firstFrame: [MEDIA('a')] } }));
-  assert.deepEqual(ok.media, { firstFrame: [MEDIA('a')] });
-});
-
-test('量化版不支持首尾帧，也不支持视频/音频参考', () => {
-  const plugin = h3Plugin();
-  assert.throws(
-    () => validateAndNormalizeInput(plugin, baseInput({
-      facets: { tier: 'lite', resolution: '768P' },
-      fields: { mode: 'first-last-frame', aspectRatio: '9:16', seconds: 8, prompt: 'p' },
-    })),
-    /不支持/,
-  );
-  assert.throws(
-    () => validateAndNormalizeInput(plugin, baseInput({
-      facets: { tier: 'lite', resolution: '768P' },
-      media: { multiVideo: [MEDIA('v')] },
-    })),
-    /参考视频.*最多 0 个/,
-  );
-});
-
-test('量化版参考图上限收紧到 4 张', () => {
-  const plugin = h3Plugin();
-  const five = Array.from({ length: 5 }, (_, i) => MEDIA(`i${i}`));
-  assert.throws(
-    () => validateAndNormalizeInput(plugin, baseInput({
-      facets: { tier: 'lite', resolution: '768P' },
-      media: { multiImage: five },
-    })),
-    /最多 4 个/,
-  );
-});
-
-test('不存在的 facet 组合被拒绝', () => {
-  assert.throws(
-    () => validateAndNormalizeInput(h3Plugin(), baseInput({ facets: { tier: 'comic', resolution: '1080P' } })),
-    /没有对应的模型/,
-  );
-});
-
-test('前端声明的 model 与 facet 组合不一致时拒绝', () => {
-  assert.throws(
-    () => validateAndNormalizeInput(h3Plugin(), baseInput({ model: 'minimax-h3-quantized-768p' })),
-    /模型与参数组合不匹配/,
-  );
-});
-
-test('提示词为空、超长、以及非法枚举值都被拦下', () => {
-  const plugin = h3Plugin();
-  assert.throws(() => validateAndNormalizeInput(plugin, baseInput({
-    fields: { mode: 'multi-reference', aspectRatio: '9:16', seconds: 8, prompt: '   ' },
-  })), /不能为空/);
-  assert.throws(() => validateAndNormalizeInput(plugin, baseInput({
-    fields: { mode: 'multi-reference', aspectRatio: '9:16', seconds: 8, prompt: 'x'.repeat(5001) },
-  })), /5000 字上限/);
-  assert.throws(() => validateAndNormalizeInput(plugin, baseInput({
-    fields: { mode: 'multi-reference', aspectRatio: '32:9', seconds: 8, prompt: 'p' },
-  })), /画面比例.*无效/);
-  assert.throws(() => validateAndNormalizeInput(plugin, baseInput({
-    fields: { mode: 'multi-reference', aspectRatio: '9:16', seconds: 99, prompt: 'p' },
-  })), /视频时长.*无效/);
-});
-
-test('外部素材地址不被接受', () => {
-  assert.throws(
-    () => validateAndNormalizeInput(h3Plugin(), baseInput({
-      media: { multiImage: ['https://evil.test/a.png'] },
-    })),
-    /无效的素材地址/,
-  );
-});
-
-test('InputError 是可识别的错误类型', () => {
-  try {
-    validateAndNormalizeInput(h3Plugin(), baseInput({ facets: {} }));
-    assert.fail('应当抛错');
-  } catch (error) {
-    assert.ok(error instanceof InputError);
-  }
-});
-
-// ===== 端到端：入参 → 上游请求体 =====
-//
-// 这几条是协议表达力的验收标准：商业分支里 createVideoTaskBackend 手写的每一条
-// H3 特例（seconds 必须是字符串、size 与 aspect_ratio 互斥、fl2v 拼首尾帧、
-// 可选素材字段有就传），都必须能纯靠 provider.json 表达出来。
-
-function buildSubmitBody(input) {
-  const plugin = h3Plugin();
-  const normalized = validateAndNormalizeInput(plugin, input);
-  const context = buildContext({
-    plugin,
-    baseUrl: 'https://pro.ccode.vip',
-    apiKey: 'sk-test',
-    model: normalized.model,
-    facets: normalized.facets,
-    fields: normalized.fields,
-    media: normalized.media,
-  });
-  return resolveTemplate(plugin.provider.submit.body, context);
+function buildSubmit(input) {
+  const plugin = seedancePlugin();
+  return plugin.driver.buildSubmit(buildContext({ plugin, baseUrl: 'https://www.qlqqx.com', apiKey: 'fixture-key',
+    ...validateAndNormalizeInput(plugin, input) }));
 }
 
-test('普通档位只传 aspect_ratio，不传 size', () => {
-  const body = buildSubmitBody(baseInput());
-  assert.deepEqual(body, {
-    model: 'minimax-h3-original-768p',
-    prompt: '一只猫',
-    // 上游 Go 服务要求 seconds 是字符串，传数字会报 cannot unmarshal number
-    seconds: '8',
-    aspect_ratio: '9:16',
-  });
-  assert.equal('size' in body, false);
-  assert.equal('workflow_id' in body, false);
+test('Seedance 插件加载、客户端描述与 12 种模型模式组合', () => {
+  const p = seedancePlugin();
+  assert.equal(p.manifest.models.length, 2);
+  assert.equal(p.uiSchema.modelSelector.variants.length, 12);
+  const description = registry.describeForClient(p);
+  assert.equal(description.provider, undefined);
+  assert.equal(description.driver, undefined);
+  assert.equal(description.models[0].price.unit, 'per-second');
+  assert.equal(resolveModelFromFacets(p.uiSchema, { targetModel: 'seedance-2.0', mode: 'edit' }), 'seedance-2.0');
+  assert.equal(resolveModelFromFacets(p.uiSchema, { targetModel: 'seedance-2.0', mode: 'bad' }), null);
 });
 
-test('CF 超分档位同时传 size 与 aspect_ratio', () => {
-  const body = buildSubmitBody(baseInput({
-    facets: { tier: 'standard', resolution: '4K' },
-    media: { multiImage: [MEDIA('a')] },
-  }));
-  assert.equal(body.model, 'minimax-h3-original-cf-4k');
-  assert.equal(body.size, '4K');
-  assert.equal(body.aspect_ratio, '9:16');
-  assert.deepEqual(body.images, [MEDIA('a')]);
-});
-
-test('首尾帧模式带 workflow_id，images 为首帧 + 尾帧', () => {
-  const body = buildSubmitBody(baseInput({
-    fields: { mode: 'first-last-frame', aspectRatio: '16:9', seconds: 6, prompt: 'p' },
-    media: { firstFrame: [MEDIA('first')], lastFrame: [MEDIA('last')] },
-  }));
-  assert.equal(body.workflow_id, 'fl2v');
-  assert.deepEqual(body.images, [MEDIA('first'), MEDIA('last')]);
-  assert.equal('size' in body, false);
-});
-
-test('尾帧缺省时 images 只有首帧，不补空值', () => {
-  const body = buildSubmitBody(baseInput({
-    fields: { mode: 'first-last-frame', aspectRatio: '16:9', seconds: 6, prompt: 'p' },
-    media: { firstFrame: [MEDIA('first')] },
-  }));
-  assert.deepEqual(body.images, [MEDIA('first')]);
-});
-
-test('参考视频 / 音频有就传，没有就整个字段不出现', () => {
-  const withMedia = buildSubmitBody(baseInput({
-    media: { multiImage: [MEDIA('i')], multiVideo: [MEDIA('v')], multiAudio: [MEDIA('a')] },
-  }));
-  assert.deepEqual(withMedia.reference_videos, [MEDIA('v')]);
-  assert.deepEqual(withMedia.reference_audios, [MEDIA('a')]);
-
-  const without = buildSubmitBody(baseInput());
-  assert.equal('reference_videos' in without, false);
-  assert.equal('reference_audios' in without, false);
-  assert.equal('images' in without, false);
-});
-
-test('查询地址与鉴权头由模板拼出', () => {
-  const plugin = h3Plugin();
-  const context = buildContext({
-    plugin, baseUrl: 'https://pro.ccode.vip', apiKey: 'sk-test', upstreamTaskId: 'up-42',
-  });
-  assert.equal(
-    resolveTemplate(plugin.provider.poll.url, context),
-    'https://pro.ccode.vip/v1/videos/up-42',
-  );
-  assert.deepEqual(
-    resolveTemplate(plugin.provider.poll.headers, context),
-    { Authorization: 'Bearer sk-test' },
-  );
-});
-
-// ===== 出网闸门 =====
-
-test('未申报的主机被拒绝出网', () => {
-  const plugin = h3Plugin();
-  assert.throws(() => assertUrlAllowed(plugin, 'https://evil.test/v1/videos', '创建请求'), /未在 manifest/);
-  assert.throws(() => assertUrlAllowed(plugin, 'https://127.0.0.1/v1/videos', '创建请求'), /内网地址/);
-  assert.throws(() => assertUrlAllowed(plugin, 'file:///etc/passwd', '创建请求'), /http\/https/);
-  assert.equal(
-    assertUrlAllowed(plugin, 'http://pro.ccode.vip/v1/videos', '创建请求'),
-    'http://pro.ccode.vip/v1/videos',
-  );
-});
-
-test('内网地址判定覆盖常见私有网段与元数据地址', () => {
-  for (const host of ['localhost', '127.0.0.1', '10.1.2.3', '192.168.1.1', '172.16.0.1', '169.254.169.254', '::1']) {
-    assert.equal(isLocallyScopedHost(host), true, `${host} 应判为内网`);
-  }
-  assert.equal(isLocallyScopedHost('pro.ccode.vip'), false);
-});
-
-// ===== 插件包自带的契约用例 =====
-//
-// 每个插件目录下的 fixtures/ 都在这里跑一遍：给定表单值断言请求体，
-// 给定上游响应断言归一化结果。加插件时不用改这个测试。
-
-test('所有已安装插件的 fixtures 全部通过', () => {
-  const plugins = registry.listPlugins();
-  assert.ok(plugins.length > 0, '至少应有一个已安装插件');
-  for (const plugin of plugins) {
-    const results = verifyPlugin(plugin);
-    for (const result of results) {
-      assert.ok(result.ok, `${plugin.id} / ${result.name}: ${result.error}`);
-    }
+test('包校验器指出 manifest、模型引用及 allowRemoteUrl 的错误', () => {
+  const p = seedancePlugin();
+  const manifest = { ...p.manifest, id: 'Bad_Id', version: 'bad', kind: 'audio' };
+  const schema = structuredClone(p.uiSchema);
+  schema.modelSelector.variants[0].model = 'missing';
+  schema.fields[0].allowRemoteUrl = 'yes';
+  const result = validatePluginPackage({ manifest, uiSchema: schema, driver: p.driver, hasScriptDriver: true, dirName: PLUGIN_ID });
+  assert.equal(result.ok, false);
+  for (const term of [/manifest.id/, /manifest.version/, /manifest.kind/, /未在 manifest.models/, /allowRemoteUrl/]) {
+    assert.match(result.message, term);
   }
 });
 
-test('没有加载失败的插件目录', () => {
+test('默认字段、隐藏素材与 edit 时长', () => {
+  assert.deepEqual(buildSubmit(baseInput()).body, { model: 'seedance-2.5', content: [{ type: 'text', text: '一只猫' }],
+    resolution: '720p', ratio: 'adaptive', duration: 5, generate_audio: true, watermark: false });
+  const body = buildSubmit(baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'edit' }, fields: { prompt: '修改', duration: -1 },
+    media: { sourceVideo: ['https://media.test/in.mp4'], firstFrame: ['https://media.test/hidden.png'] } })).body;
+  assert.equal(body.duration, undefined);
+  assert.equal(body.omni_reference_task_type, 'edit');
+  assert.equal(body.content.length, 2);
+});
+
+test('素材支持混合 HTTPS 与上传地址，外链不进入本机素材绑定清单', () => {
+  const p = seedancePlugin();
+  const media = { referenceImages: ['/api/nova/plugin-media/a.png', 'https://media.test/b.png'] };
+  const n = validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'reference' }, media }));
+  assert.deepEqual(n.media, media);
+  assert.deepEqual(n.mediaUrls, ['/api/nova/plugin-media/a.png']);
+  for (const url of ['http://media.test/a.png', 'file:///tmp/a', 'data:image/png;base64,a', 'https://u:p@media.test/a.png']) {
+    assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'reference' },
+      media: { referenceImages: [url] } })), InputError);
+  }
+  const localOnly = { ...p, uiSchema: structuredClone(p.uiSchema) };
+  localOnly.uiSchema.fields.find(f => f.key === 'referenceImages').allowRemoteUrl = false;
+  assert.throws(() => validateAndNormalizeInput(localOnly, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'reference' },
+    media: { referenceImages: ['https://media.test/b.png'] } })), /无效的素材地址/);
+});
+
+test('首尾帧必填、reference 非空与 2.0 音频单独输入限制', () => {
+  const p = seedancePlugin();
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'firstlast' } })), /首帧.*必填/);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'firstlast' },
+    media: { firstFrame: ['https://media.test/first.png'] } })), /尾帧.*必填/);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'reference' } })), /至少需要/);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.0', mode: 'reference' },
+    media: { referenceAudios: ['https://media.test/a.mp3'] } })), /不能仅使用参考音频/);
+});
+
+test('模型时长、首帧画幅、素材个数及提示词权威校验', () => {
+  const p = seedancePlugin();
+  for (const duration of [16, 30]) {
+    assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.0', mode: 't2v' },
+      fields: { prompt: 'p', duration } })), /不支持/);
+  }
+  for (const duration of [-1, 4, 30]) assert.equal(buildSubmit(baseInput({ fields: { prompt: 'p', duration } })).body.duration, duration);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'i2v' },
+    fields: { prompt: 'p', ratio: '16:9' }, media: { firstFrame: ['https://media.test/i.png'] } })), /当前组合下不支持「画面比例」/);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ facets: { targetModel: 'seedance-2.0', mode: 'reference' },
+    media: { referenceVideos: Array(4).fill('https://media.test/v.mp4') } })), /最多 3 个/);
+  for (const fields of [{ prompt: '' }, { prompt: 'x'.repeat(10001) }, { prompt: 'p', duration: 31 }]) {
+    assert.throws(() => validateAndNormalizeInput(p, baseInput({ fields })), InputError);
+  }
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ model: 'seedance-2.0' })), /不匹配/);
+});
+
+test('Seedance 状态映射和错误文案', () => {
+  const { normalizePollResponse, resolvePollTiming } = require('../plugin-runtime/executor');
+  const p = seedancePlugin();
+  for (const status of ['queued', 'running']) assert.equal(normalizePollResponse(p, { status }, {}).state, 'processing');
+  for (const status of ['failed', 'cancelled', 'expired']) {
+    assert.deepEqual(normalizePollResponse(p, { status, error: { message: '错误原因' } }, {}), { state: 'failed', error: '错误原因' });
+  }
+  assert.equal(normalizePollResponse(p, { status: 'succeeded', content: {} }, {}).state, 'failed');
+  assert.deepEqual(resolvePollTiming(p), { intervalMs: 10000, maxTotalMs: 43200000 });
+});
+
+test('出网闸门拒绝未申报地址，嵌入时仅放行固定网关 origin', () => {
+  const p = seedancePlugin();
+  assert.throws(() => assertUrlAllowed(p, 'https://evil.test/a', '创建'), /未在 manifest/);
+  assert.throws(() => assertUrlAllowed(p, 'http://127.0.0.1/a', '创建'), /内网/);
+  assert.throws(() => assertUrlAllowed(p, 'file:///tmp/a', '创建'), /http\/https/);
+  const embed = { enabled: true, gatewayUrl: 'http://127.0.0.1:8080' };
+  assert.equal(assertUrlAllowed(p, `${embed.gatewayUrl}/api/v3/contents/generations/tasks`, '创建', embed), `${embed.gatewayUrl}/api/v3/contents/generations/tasks`);
+  assert.throws(() => assertUrlAllowed(p, 'https://www.qlqqx.com/api/v3/contents/generations/tasks', '创建', embed), /固定网关/);
+  for (const host of ['localhost', '127.0.0.1', '10.0.0.1', '192.168.1.1', '172.16.0.1', '169.254.169.254', '::1']) {
+    assert.equal(isLocallyScopedHost(host), true);
+  }
+});
+
+test('全部插件 fixtures 校验通过，覆盖六种模式及变更 01 规格快照', () => {
   assert.deepEqual(registry.listFailures(), []);
+  const results = verifyPlugin(seedancePlugin());
+  assert.equal(results.length, 9);
+  for (const result of results) assert.ok(result.ok, `${result.name}: ${result.error}`);
+});
+
+test('选项 availableWhen 与 unavailableWhen 同时生效，禁用条件按键 AND 匹配', () => {
+  const option = { availableWhen: { tier: ['standard'] }, unavailableWhen: { model: ['new'], mode: ['i2v', 'firstlast'] } };
+  assert.equal(isOptionAvailable({}, {}), true);
+  assert.equal(isOptionAvailable(option, { tier: 'lite', model: 'old', mode: 't2v' }), false);
+  assert.equal(isOptionAvailable(option, { tier: 'standard', model: 'new', mode: 'i2v' }), false);
+  assert.equal(isOptionAvailable(option, { tier: 'standard', model: 'old', mode: 'i2v' }), true);
+  assert.equal(isOptionAvailable(option, { tier: 'standard', model: 'new', mode: 't2v' }), true);
+  assert.equal(isOptionAvailable({ unavailableWhen: { mode: ['i2v'] } }, { mode: 'i2v' }), false);
+  assert.equal(isOptionAvailable({ unavailableWhen: {} }, {}), false);
+});
+
+test('schema 校验接受合法 unavailableWhen，并拒绝与 availableWhen 同类的格式错误', () => {
+  const p = seedancePlugin();
+  const validate = uiSchema => validatePluginPackage({ manifest: p.manifest, uiSchema,
+    driver: p.driver, hasScriptDriver: true, dirName: PLUGIN_ID });
+  assert.equal(validate(p.uiSchema).ok, true);
+  for (const invalid of ['i2v', null, { mode: [] }, { mode: 'i2v' }]) {
+    const schema = structuredClone(p.uiSchema);
+    schema.fields.find(field => field.key === 'ratio').options[1].unavailableWhen = invalid;
+    const result = validate(schema);
+    assert.equal(result.ok, false);
+    assert.match(result.message, /\.options\[1\]\.unavailableWhen/);
+  }
+});
+
+test('Seedance 2.5 首帧/首尾帧禁用六个固定比例，2.0 首帧允许 16:9', () => {
+  const p = seedancePlugin();
+  const ratio = p.uiSchema.fields.find(field => field.key === 'ratio');
+  assert.equal(ratio.options.find(option => option.value === 'adaptive').unavailableWhen, undefined);
+  assert.equal(ratio.options.filter(option => option.unavailableWhen).length, 6);
+  for (const mode of ['i2v', 'firstlast']) {
+    const media = { firstFrame: ['https://media.test/first.png'],
+      ...(mode === 'firstlast' ? { lastFrame: ['https://media.test/last.png'] } : {}) };
+    const input = baseInput({ facets: { targetModel: 'seedance-2.5', mode }, fields: { prompt: 'p', ratio: '16:9' }, media });
+    for (const option of ratio.options.filter(option => option.value !== 'adaptive')) {
+      assert.deepEqual(option.unavailableWhen, { targetModel: ['seedance-2.5'], mode: ['i2v', 'firstlast'] });
+      assert.throws(() => validateAndNormalizeInput(p, { ...input, fields: { ...input.fields, ratio: option.value } }), /不支持「画面比例」/);
+    }
+    assert.equal(buildSubmit({ ...input, fields: { prompt: 'p', ratio: 'adaptive' } }).body.ratio, 'adaptive');
+    assert.equal(buildSubmit({ ...input, facets: { targetModel: 'seedance-2.0', mode } }).body.ratio, '16:9');
+    assert.throws(() => p.driver.validateInput({ facets: input.facets, fields: input.fields, media }), /只能为 adaptive/);
+  }
+  assert.equal(buildSubmit(baseInput({ fields: { prompt: 'p', ratio: '16:9' } })).body.ratio, '16:9');
+});
+
+test('变更 01：4k 仅 2.0 可选，两个模型默认 720p / 5 秒 / adaptive 并支持自动时长', () => {
+  const p = seedancePlugin();
+  const fourK = p.uiSchema.fields.find(field => field.key === 'resolution').options.find(option => option.value === '4k');
+  assert.equal(p.uiSchema.modelSelector.familyDescription, '按秒计费');
+  assert.ok(fourK);
+  assert.equal(isOptionAvailable(fourK, { targetModel: 'seedance-2.0' }), true);
+  assert.equal(isOptionAvailable(fourK, { targetModel: 'seedance-2.5' }), false);
+  for (const model of ['seedance-2.0', 'seedance-2.5']) {
+    const input = baseInput({ facets: { targetModel: model, mode: 't2v' } });
+    const defaults = buildSubmit(input).body;
+    assert.equal(defaults.resolution, '720p');
+    assert.equal(defaults.duration, 5);
+    assert.equal(defaults.ratio, 'adaptive');
+    assert.equal(buildSubmit({ ...input, fields: { prompt: 'p', duration: -1 } }).body.duration, -1);
+    for (const resolution of ['480p', '720p', '1080p']) {
+      assert.equal(buildSubmit({ ...input, fields: { prompt: 'p', resolution } }).body.resolution, resolution);
+    }
+    const with4k = { ...input, fields: { prompt: 'p', resolution: '4k' } };
+    if (model === 'seedance-2.0') assert.equal(buildSubmit(with4k).body.resolution, '4k');
+    else assert.throws(() => validateAndNormalizeInput(p, with4k), /不支持「分辨率」/);
+  }
+});
+
+test('变更 01：2.0 参考图/音频上限为 9/3，2.5 为 30/10，超量仍拒绝', () => {
+  const p = seedancePlugin();
+  assert.equal(p.manifest.media.images.maxCount, 30);
+  assert.equal(p.manifest.media.audios.maxCount, 10);
+  for (const [model, imageLimit, audioLimit] of [['seedance-2.0', 9, 3], ['seedance-2.5', 30, 10]]) {
+    const images = Array.from({ length: imageLimit }, (_, index) => `https://media.test/image-${index}.png`);
+    const audios = Array.from({ length: audioLimit }, (_, index) => `https://media.test/audio-${index}.mp3`);
+    const input = baseInput({ facets: { targetModel: model, mode: 'reference' }, media: { referenceImages: images, referenceAudios: audios } });
+    const body = buildSubmit(input).body;
+    assert.equal(body.content.filter(item => item.role === 'reference_image').length, imageLimit);
+    assert.equal(body.content.filter(item => item.role === 'reference_audio').length, audioLimit);
+    assert.throws(() => validateAndNormalizeInput(p, { ...input, media: { ...input.media, referenceImages: [...images, 'https://media.test/extra.png'] } }), new RegExp(`参考图片.*最多 ${imageLimit} 个`));
+    assert.throws(() => validateAndNormalizeInput(p, { ...input, media: { ...input.media, referenceAudios: [...audios, 'https://media.test/extra.mp3'] } }), new RegExp(`参考音频.*最多 ${audioLimit} 个`));
+  }
 });

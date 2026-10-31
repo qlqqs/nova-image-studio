@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { makeKey } from './fixtures';
+import { makeKey, VIDEO_PLAZA } from './fixtures';
 const mock = vi.hoisted(() => ({
  getCurrentUser: vi.fn(), listKeys: vi.fn(), getWorkbenchDefaults: vi.fn(), saveWorkbenchPrefs: vi.fn(), listGatewayModels: vi.fn(),
  local: {} as Record<string, unknown>,
@@ -7,7 +7,8 @@ const mock = vi.hoisted(() => ({
 vi.mock('../sub2api-client', () => mock);
 vi.mock('../embed-registry', () => ({ loadStudioPrefs: () => mock.local, saveStudioPrefs: vi.fn(p => { mock.local = p; }), buildEmbedRegistry: () => ({}) }));
 vi.mock('../registry-store', () => ({ clearEmbedRegistry: vi.fn(), setEmbedRegistry: vi.fn() }));
-vi.mock('../cost-estimate', () => ({ clearPlazaCache: vi.fn(), loadPlazaGroups: vi.fn().mockResolvedValue(null) }));
+const plaza = vi.hoisted(() => ({ load: vi.fn() }));
+vi.mock('../cost-estimate', () => ({ clearPlazaCache: vi.fn(), loadPlazaGroups: plaza.load }));
 vi.mock('../balance', () => ({ setBalanceFromUser: vi.fn() }));
 vi.mock('@/lib/gemini-config', () => ({ syncDynamicModelExports: vi.fn() }));
 import { bootstrapStudio, applyStudioPrefs, getStudioPrefs, resetStudioState } from '../studio-state';
@@ -20,6 +21,7 @@ beforeEach(() => {
  mock.getWorkbenchDefaults.mockResolvedValue({ ...defaults });
  mock.listGatewayModels.mockResolvedValue([defaults.text_model, defaults.image_model]);
  mock.saveWorkbenchPrefs.mockImplementation(async p => p);
+ plaza.load.mockResolvedValue(null);
 });
 it('initializes once, then persists a deliberate clear across a fresh session', async () => {
  await bootstrapStudio(8);
@@ -48,4 +50,23 @@ it('preserves a server-side manual choice racing with first initialization', asy
  const manual = { text: { keyId: 19, model: 'chosen-model' } };
  mock.saveWorkbenchPrefs.mockResolvedValue(manual);
  await bootstrapStudio(8); expect(getStudioPrefs()).toEqual(manual);
+});
+it('keeps the video row local: never sent to sub2api, merged back after each save', async () => {
+ const video = { keyId: 3, model: 'seedance-2.5' };
+ mock.local = { video };
+ mock.getWorkbenchDefaults.mockResolvedValue({ ...defaults, initialized: true, preferences: { text: { keyId: 2, model: defaults.text_model } } });
+ await bootstrapStudio(8);
+ expect(getStudioPrefs().video).toEqual(video);
+ await applyStudioPrefs({ ...getStudioPrefs(), video: { keyId: 3, model: 'seedance-2.0' } });
+ expect(mock.saveWorkbenchPrefs).toHaveBeenLastCalledWith({ text: { keyId: 2, model: defaults.text_model } });
+ expect(getStudioPrefs().video).toEqual({ keyId: 3, model: 'seedance-2.0' });
+});
+it('auto-selects the only video key with its default video model', async () => {
+ plaza.load.mockResolvedValue(VIDEO_PLAZA);
+ mock.getWorkbenchDefaults.mockResolvedValue({ ...defaults, eligible: false });
+ mock.listKeys.mockResolvedValue([makeKey(2, 'openai'), makeKey(3, 'openai')]);
+ mock.listGatewayModels.mockImplementation(async (key: string) => (key.includes('-3-') ? ['seedance-2.0', 'seedance-2.5'] : ['gpt-5.4']));
+ await bootstrapStudio(8);
+ expect(getStudioPrefs().video).toEqual({ keyId: 3, model: 'seedance-2.0' });
+ expect(mock.local).toMatchObject({ video: { keyId: 3, model: 'seedance-2.0' } });
 });

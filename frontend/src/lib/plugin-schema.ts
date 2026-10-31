@@ -52,6 +52,8 @@ export interface PluginFieldOption {
   description?: string;
   /** 只有在这些 facet / 字段取值下才可选 */
   availableWhen?: FacetCondition;
+  /** 在这些 facet / 字段取值下不可选（与 availableWhen 同时写时两者都要满足） */
+  unavailableWhen?: FacetCondition;
 }
 
 export interface PluginMediaMaxCount {
@@ -85,6 +87,10 @@ export interface PluginField {
   style?: 'thumbnail' | 'chip' | 'frame';
   accent?: string;
   maxCount?: number | PluginMediaMaxCount;
+  /** 视频槽的总时长上限（秒），写法同 maxCount；只校验读得到时长的素材 */
+  maxTotalSeconds?: number | PluginMediaMaxCount;
+  /** 允许直接填写 https:// 公网链接（不经过本机上传） */
+  allowRemoteUrl?: boolean;
 }
 
 export interface PluginUiSchema {
@@ -164,12 +170,11 @@ export function isFieldRequired(field: PluginField, scope: Record<string, unknow
 }
 
 export function isOptionAvailable(option: PluginFieldOption, scope: Record<string, unknown>): boolean {
+  if (option.unavailableWhen && matchCondition(option.unavailableWhen, scope)) return false;
   return matchCondition(option.availableWhen, scope);
 }
 
-/** 素材字段在当前 facet 下的名额上限。0 表示该组合不支持这类素材，界面上直接隐藏。 */
-export function resolveMaxCount(field: PluginField, facets: FacetValues): number {
-  const max = field.maxCount;
+function resolveByFacet(max: number | PluginMediaMaxCount | undefined, facets: FacetValues): number {
   if (typeof max === 'number') return Number.isInteger(max) ? max : 0;
   if (max && typeof max === 'object') {
     const value = max.values[String(facets[max.byFacet])];
@@ -177,6 +182,17 @@ export function resolveMaxCount(field: PluginField, facets: FacetValues): number
     return Number.isInteger(max.default) ? (max.default as number) : 0;
   }
   return 0;
+}
+
+/** 素材字段在当前 facet 下的名额上限。0 表示该组合不支持这类素材，界面上直接隐藏。 */
+export function resolveMaxCount(field: PluginField, facets: FacetValues): number {
+  return resolveByFacet(field.maxCount, facets);
+}
+
+/** 素材字段在当前 facet 下的总时长上限（秒）；未申报返回 null。 */
+export function resolveMaxTotalSeconds(field: PluginField, facets: FacetValues): number | null {
+  if (field.maxTotalSeconds === undefined) return null;
+  return resolveByFacet(field.maxTotalSeconds, facets);
 }
 
 /**
@@ -299,7 +315,7 @@ export function defaultFieldValues(schema: PluginUiSchema, facets: FacetValues):
 }
 
 /**
- * facet 变化后收敛字段值：当前取值在新组合下不可选时，落到第一个可选项。
+ * facet 变化后收敛字段值：当前取值在新组合下不可选时，落到默认值或第一个可选项。
  * 不这么做的话，切到量化版后「首尾帧」会留在表单里，提交时才被后端拒绝。
  */
 export function coerceFieldValues(
@@ -314,7 +330,9 @@ export function coerceFieldValues(
     const scope = buildScope(facets, next);
     const current = options.find(option => String(option.value) === String(next[field.key]));
     if (current && isOptionAvailable(current, scope)) continue;
-    const fallback = options.find(option => isOptionAvailable(option, scope));
+    // 优先落回字段默认值（如 4k → 720p），默认值也不可选时取第一个可选项
+    const fallback = options.find(option => String(option.value) === String(field.default) && isOptionAvailable(option, scope))
+      ?? options.find(option => isOptionAvailable(option, scope));
     if (fallback) next[field.key] = fallback.value;
   }
   return next;
@@ -440,12 +458,14 @@ export interface SubmitCheck {
 /**
  * 提交前的即时校验，与后端 validateAndNormalizeInput 同一套规则。
  * 只用于禁用按钮和给提示，真正的把关在后端。
+ * mediaSeconds 是各素材槽里每个素材的时长（读不到为 undefined），用于 maxTotalSeconds。
  */
 export function checkSubmittable(
   schema: PluginUiSchema,
   facets: FacetValues,
   fields: FieldValues,
   mediaCounts: Record<string, number>,
+  mediaSeconds: Record<string, Array<number | undefined>> = {},
 ): SubmitCheck {
   if (!resolveModel(schema, facets)) {
     return { ok: false, reason: '当前参数组合没有对应的模型' };
@@ -462,6 +482,11 @@ export function checkSubmittable(
       if (maxCount <= 0) continue;
       if (count > maxCount) return { ok: false, reason: `「${label}」最多 ${maxCount} 个` };
       if (required && count === 0) return { ok: false, reason: `请先提供「${label}」` };
+      const maxSeconds = resolveMaxTotalSeconds(field, facets);
+      const seconds = (mediaSeconds[field.key] || []).reduce<number>((sum, value) => sum + (value ?? 0), 0);
+      if (maxSeconds !== null && seconds > maxSeconds) {
+        return { ok: false, reason: `「${label}」总时长 ${Math.round(seconds * 10) / 10} 秒，最多 ${maxSeconds} 秒` };
+      }
       continue;
     }
     if (field.type === 'text' || field.type === 'textarea') {

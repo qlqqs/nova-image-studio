@@ -1,0 +1,603 @@
+{
+  "apiVersion": 1,
+  "priceQuantityField": "duration",
+  "layout": {
+    "toolbar": [
+      "$model",
+      "$mode",
+      "resolution",
+      "ratio",
+      "duration",
+      "generate_audio"
+    ],
+    "body": [
+      "firstFrame",
+      "lastFrame",
+      "referenceImages",
+      "referenceVideos",
+      "referenceAudios",
+      "sourceVideo",
+      "prompt"
+    ]
+  },
+  "modelSelector": {
+    "familyLabel": "Seedance",
+    "familyDescription": "按秒计费",
+    "facets": [
+      {
+        "key": "targetModel",
+        "label": "模型"
+      },
+      {
+        "key": "mode",
+        "label": "生成方式"
+      }
+    ],
+    "facetOptions": {
+      "targetModel": [
+        {
+          "value": "seedance-2.0",
+          "label": "Seedance 2.0"
+        },
+        {
+          "value": "seedance-2.5",
+          "label": "Seedance 2.5"
+        }
+      ],
+      "mode": [
+        {
+          "value": "t2v",
+          "label": "文生视频"
+        },
+        {
+          "value": "i2v",
+          "label": "图生视频"
+        },
+        {
+          "value": "firstlast",
+          "label": "首尾帧"
+        },
+        {
+          "value": "reference",
+          "label": "参考生成"
+        },
+        {
+          "value": "edit",
+          "label": "视频编辑"
+        },
+        {
+          "value": "extend",
+          "label": "视频延长"
+        }
+      ]
+    },
+    "variants": [
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "t2v"
+      },
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "i2v"
+      },
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "firstlast"
+      },
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "reference"
+      },
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "edit"
+      },
+      {
+        "model": "seedance-2.0",
+        "targetModel": "seedance-2.0",
+        "mode": "extend"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "t2v"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "i2v"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "firstlast"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "reference"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "edit"
+      },
+      {
+        "model": "seedance-2.5",
+        "targetModel": "seedance-2.5",
+        "mode": "extend"
+      }
+    ]
+  },
+  "fields": [
+    {
+      "key": "firstFrame",
+      "label": "首帧",
+      "type": "media",
+      "kind": "images",
+      "showIf": {
+        "mode": [
+          "i2v",
+          "firstlast"
+        ]
+      },
+      "maxCount": 1,
+      "required": true,
+      "style": "frame",
+      "allowRemoteUrl": true
+    },
+    {
+      "key": "lastFrame",
+      "label": "尾帧",
+      "type": "media",
+      "kind": "images",
+      "showIf": {
+        "mode": [
+          "firstlast"
+        ]
+      },
+      "maxCount": 1,
+      "required": true,
+      "style": "frame",
+      "allowRemoteUrl": true
+    },
+    {
+      "key": "referenceImages",
+      "label": "参考图片",
+      "type": "media",
+      "kind": "images",
+      "showIf": {
+        "mode": [
+          "reference"
+        ]
+      },
+      "maxCount": {
+        "byFacet": "targetModel",
+        "values": {
+          "seedance-2.0": 9,
+          "seedance-2.5": 30
+        },
+        "default": 0
+      },
+      "required": false,
+      "style": "thumbnail",
+      "allowRemoteUrl": true
+    },
+    {
+      "key": "referenceVideos",
+      "label": "参考视频",
+      "type": "media",
+      "kind": "videos",
+      "showIf": {
+        "mode": [
+          "reference"
+        ]
+      },
+      "maxCount": {
+        "byFacet": "targetModel",
+        "values": {
+          "seedance-2.0": 3,
+          "seedance-2.5": 10
+        },
+        "default": 0
+      },
+      "required": false,
+      "style": "chip",
+      "allowRemoteUrl": true,
+      "maxTotalSeconds": {
+        "byFacet": "targetModel",
+        "values": {
+          "seedance-2.0": 15,
+          "seedance-2.5": 30
+        }
+      }
+    },
+    {
+      "key": "referenceAudios",
+      "label": "参考音频",
+      "type": "media",
+      "kind": "audios",
+      "showIf": {
+        "mode": [
+          "reference"
+        ]
+      },
+      "maxCount": {
+        "byFacet": "targetModel",
+        "values": {
+          "seedance-2.0": 3,
+          "seedance-2.5": 10
+        },
+        "default": 0
+      },
+      "required": false,
+      "style": "chip",
+      "allowRemoteUrl": true
+    },
+    {
+      "key": "sourceVideo",
+      "label": "原视频",
+      "type": "media",
+      "kind": "videos",
+      "showIf": {
+        "mode": [
+          "edit",
+          "extend"
+        ]
+      },
+      "maxCount": 1,
+      "required": true,
+      "style": "chip",
+      "allowRemoteUrl": true,
+      "maxTotalSeconds": {
+        "byFacet": "targetModel",
+        "values": {
+          "seedance-2.0": 15,
+          "seedance-2.5": 30
+        }
+      }
+    },
+    {
+      "key": "resolution",
+      "type": "select",
+      "label": "分辨率",
+      "default": "720p",
+      "options": [
+        {
+          "value": "480p",
+          "label": "480p"
+        },
+        {
+          "value": "720p",
+          "label": "720p"
+        },
+        {
+          "value": "1080p",
+          "label": "1080p"
+        },
+        {
+          "value": "4k",
+          "label": "4K",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.0"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "ratio",
+      "type": "select-grid",
+      "label": "画面比例",
+      "default": "adaptive",
+      "options": [
+        {
+          "value": "adaptive",
+          "label": "自动"
+        },
+        {
+          "value": "16:9",
+          "label": "16:9",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        },
+        {
+          "value": "4:3",
+          "label": "4:3",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        },
+        {
+          "value": "1:1",
+          "label": "1:1",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        },
+        {
+          "value": "3:4",
+          "label": "3:4",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        },
+        {
+          "value": "9:16",
+          "label": "9:16",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        },
+        {
+          "value": "21:9",
+          "label": "21:9",
+          "unavailableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ],
+            "mode": [
+              "i2v",
+              "firstlast"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "key": "duration",
+      "type": "select-grid",
+      "label": "视频时长",
+      "default": 5,
+      "suffix": "秒",
+      "showIf": {
+        "mode": [
+          "t2v",
+          "i2v",
+          "firstlast",
+          "reference",
+          "extend"
+        ]
+      },
+      "options": [
+        {
+          "value": 4,
+          "label": "4"
+        },
+        {
+          "value": 5,
+          "label": "5"
+        },
+        {
+          "value": 6,
+          "label": "6"
+        },
+        {
+          "value": 7,
+          "label": "7"
+        },
+        {
+          "value": 8,
+          "label": "8"
+        },
+        {
+          "value": 9,
+          "label": "9"
+        },
+        {
+          "value": 10,
+          "label": "10"
+        },
+        {
+          "value": 11,
+          "label": "11"
+        },
+        {
+          "value": 12,
+          "label": "12"
+        },
+        {
+          "value": 13,
+          "label": "13"
+        },
+        {
+          "value": 14,
+          "label": "14"
+        },
+        {
+          "value": 15,
+          "label": "15"
+        },
+        {
+          "value": 16,
+          "label": "16",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 17,
+          "label": "17",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 18,
+          "label": "18",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 19,
+          "label": "19",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 20,
+          "label": "20",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 21,
+          "label": "21",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 22,
+          "label": "22",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 23,
+          "label": "23",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 24,
+          "label": "24",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 25,
+          "label": "25",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 26,
+          "label": "26",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 27,
+          "label": "27",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 28,
+          "label": "28",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 29,
+          "label": "29",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": 30,
+          "label": "30",
+          "availableWhen": {
+            "targetModel": [
+              "seedance-2.5"
+            ]
+          }
+        },
+        {
+          "value": -1,
+          "label": "自动"
+        }
+      ]
+    },
+    {
+      "key": "generate_audio",
+      "type": "switch",
+      "label": "生成声音",
+      "default": true
+    },
+    {
+      "key": "prompt",
+      "type": "textarea",
+      "label": "提示词",
+      "required": true,
+      "maxLength": 10000
+    }
+  ]
+}

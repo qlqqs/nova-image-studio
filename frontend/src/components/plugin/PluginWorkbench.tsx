@@ -44,10 +44,16 @@ import {
   type MediaKind,
   type PluginField,
 } from '@/lib/plugin-schema';
-import { describeRejections, getMediaConfig, selectFiles } from '@/lib/plugin-media-config';
+import { describeRejections, getMediaConfig, readVideoDuration, selectFiles } from '@/lib/plugin-media-config';
 import { compressImageToWebp } from '@/lib/image-compress';
 import { startPluginJob, type PendingMedia } from '@/lib/plugin-upload-runner';
 import type { PluginJob, PluginParamChip } from '@/lib/plugin-job-store';
+import { EMBED_VIDEO_PLUGIN_ID, isEmbedMode } from '@/lib/embed/mode';
+import { estimatePluginVideoCost, loadPlazaGroups } from '@/lib/embed/cost-estimate';
+import { videoSelectionOf } from '@/lib/embed/studio-state';
+import type { PlazaGroup } from '@/lib/embed/sub2api-client';
+import { useStudioKeys, useStudioPrefs } from '@/components/embed/hooks';
+import { CostEstimateText } from '@/components/embed/EmbedCostEstimate';
 
 interface PluginWorkbenchProps {
   wideMode?: boolean;
@@ -95,7 +101,12 @@ export function PluginWorkbench({
   }, []);
 
   const [pickedPluginId, setPickedPluginId] = useState<string>('');
-  const plugins = registry.plugins;
+  // 嵌入模式只提供内置的 Seedance 插件
+  const embedded = isEmbedMode();
+  const plugins = useMemo(
+    () => (embedded ? registry.plugins.filter(item => item.id === EMBED_VIDEO_PLUGIN_ID) : registry.plugins),
+    [embedded, registry.plugins],
+  );
 
   // 当前插件在渲染期直接推导，不用 effect 同步：用户选过的优先，否则上次用过的，否则第一个。
   // 插件列表是异步到位的，用 effect 回填 state 会多渲染一帧并触发级联更新。
@@ -114,6 +125,13 @@ export function PluginWorkbench({
   }
 
   if (!plugin) {
+    if (embedded) {
+      return (
+        <div className="rounded-2xl border border-dashed border-border bg-card/60 p-8 text-center text-sm text-muted-foreground">
+          视频生成暂不可用，请稍后再试。
+        </div>
+      );
+    }
     return <PluginEmptyState registry={registry} />;
   }
 
@@ -161,12 +179,22 @@ function PluginForm({
   initialJob,
 }: PluginFormProps) {
   const schema = plugin.uiSchema;
+  const embedded = isEmbedMode();
 
   const [parallelCount, setParallelCount] = useState(1);
 
+  // 嵌入模式：Key 与默认模型来自设置页「模型与密钥」的视频行
+  const studioKeys = useStudioKeys();
+  const studioPrefs = useStudioPrefs();
+  const videoSelection = embedded ? videoSelectionOf(studioKeys, studioPrefs) : null;
+  const videoModel = videoSelection?.model ?? null;
+
   const [facets, setFacets] = useState<FacetValues>(() => {
-    const fromJob = initialJob ? facetsFromModel(schema, initialJob.model) : null;
-    return fromJob ? coerceFacets(schema, fromJob) : defaultFacets(schema);
+    // 多个 variant 可以共用一个模型 ID（如生成方式只是 facet），优先用任务里保存的 facet
+    const fromJob = initialJob ? { ...facetsFromModel(schema, initialJob.model), ...initialJob.facets } : null;
+    const fromPrefs = videoModel ? facetsFromModel(schema, videoModel) : null;
+    const initial = fromJob ?? fromPrefs;
+    return initial ? coerceFacets(schema, initial) : defaultFacets(schema);
   });
   const [fields, setFields] = useState<FieldValues>(() => {
     const base = defaultFieldValues(schema, facets);
@@ -183,11 +211,20 @@ function PluginForm({
     getCredentialVersion,
     () => 0,
   );
+  const videoApiKey = videoSelection?.key.key ?? '';
   const credential = useMemo(
-    () => getPluginCredential(plugin),
+    () => (embedded ? { apiKey: videoApiKey, baseUrl: '' } : getPluginCredential(plugin)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- credentialVersion 是外部 store 的变更信号
-    [plugin, credentialVersion],
+    [embedded, plugin, credentialVersion, videoApiKey],
   );
+
+  const [plaza, setPlaza] = useState<PlazaGroup[] | null>(null);
+  useEffect(() => {
+    if (!embedded) return undefined;
+    let active = true;
+    void loadPlazaGroups().then(groups => { if (active) setPlaza(groups); });
+    return () => { active = false; };
+  }, [embedded, videoSelection?.key.id]);
 
   const model = resolveModel(schema, facets);
   const mediaFields = resolvedMediaFields(schema, facets, fields);
@@ -196,16 +233,42 @@ function PluginForm({
     for (const [key, items] of Object.entries(media)) counts[key] = items.length;
     return counts;
   }, [media]);
+  const mediaSeconds = useMemo(() => {
+    const seconds: Record<string, Array<number | undefined>> = {};
+    for (const [key, items] of Object.entries(media)) seconds[key] = items.map(item => item.durationSec);
+    return seconds;
+  }, [media]);
 
   const cost = model ? estimateCost(plugin, model, fields) : null;
-  const check = checkSubmittable(schema, facets, fields, mediaCounts);
+  // 嵌入模式按所选 Key 分组的模型广场单价预估（含并发数），不用插件申报价
+  const videoKey = videoSelection?.key;
+  const embedCost = useMemo(
+    () => (embedded && model
+      ? estimatePluginVideoCost(plaza, videoKey, plugin, model, facets, fields, mediaSeconds, parallelCount)
+      : null),
+    [embedded, facets, fields, mediaSeconds, model, parallelCount, plaza, plugin, videoKey],
+  );
+  const check = checkSubmittable(schema, facets, fields, mediaCounts, mediaSeconds);
   const promptField = findPromptField(plugin);
+
+  // 设置页换了视频默认模型：只同步第一个 facet（模型），保留当前生成方式
+  const [appliedVideoModel, setAppliedVideoModel] = useState(videoModel);
+  if (videoModel !== appliedVideoModel) {
+    setAppliedVideoModel(videoModel);
+    const primary = schema.modelSelector.facets[0]?.key;
+    const fromPrefs = videoModel ? facetsFromModel(schema, videoModel) : null;
+    if (primary && fromPrefs) {
+      const nextFacets = coerceFacets(schema, { ...facets, [primary]: fromPrefs[primary] });
+      setFacets(nextFacets);
+      setFields(coerceFieldValues(schema, nextFacets, fields));
+    }
+  }
 
   // 「重用参数」把历史任务同步进表单。用 React 官方推荐的「渲染期按 prop 变化调整 state」
   // 写法，而不是 effect —— 避免多渲染一帧再级联更新。
   const [appliedJobId, setAppliedJobId] = useState<string | null>(initialJob?.id ?? null);
   if (initialJob && initialJob.id !== appliedJobId) {
-    const nextFacets = coerceFacets(schema, facetsFromModel(schema, initialJob.model) ?? facets);
+    const nextFacets = coerceFacets(schema, { ...facets, ...facetsFromModel(schema, initialJob.model), ...initialJob.facets });
     setAppliedJobId(initialJob.id);
     setFacets(nextFacets);
     setFields(coerceFieldValues(schema, nextFacets, {
@@ -288,12 +351,15 @@ function PluginForm({
           const { file: compressed } = await compressImageToWebp(original, { maxBytes: config.maxBytes });
           file = compressed;
         }
+        const previewUrl = URL.createObjectURL(file);
         picked.push({
           id: `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           slot,
           kind,
           file,
-          previewUrl: URL.createObjectURL(file),
+          previewUrl,
+          // 视频时长用于总时长校验与费用预估
+          durationSec: kind === 'videos' ? await readVideoDuration(previewUrl) : undefined,
         });
       }
       setMedia(prev => ({
@@ -306,6 +372,23 @@ function PluginForm({
       setCompressingSlot(null);
     }
   }, [media, showToast]);
+
+  /** 添加一条公网链接素材（allowRemoteUrl 的素材槽），不上传、读不到时长 */
+  const handleAddUrl = useCallback((slot: string, kind: MediaKind, maxCount: number, url: string) => {
+    setMedia(prev => {
+      const items = prev[slot] || [];
+      if (items.length >= maxCount) return prev;
+      const item: PendingMedia = {
+        id: `media_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        slot,
+        kind,
+        file: null,
+        remoteUrl: url,
+        previewUrl: '',
+      };
+      return { ...prev, [slot]: [...items, item] };
+    });
+  }, []);
 
   /** 移除单个素材并回收它的本地预览地址 */
   const handleRemoveMedia = useCallback((slot: string, index: number) => {
@@ -330,7 +413,7 @@ function PluginForm({
   const handleSubmit = useCallback(() => {
     if (!model) return;
     if (!credential.apiKey) {
-      showToast?.(`请先在设置 → 插件里填写「${plugin.credential.label}」`, 'error');
+      showToast?.(embedded ? '请先在设置 →「模型与密钥」选择视频密钥' : `请先在设置 → 插件里填写「${plugin.credential.label}」`, 'error');
       onConfigureCredential?.();
       return;
     }
@@ -372,8 +455,8 @@ function PluginForm({
       facets,
       fields: submitFields,
       paramSummary: buildParamSummary(plugin, facets, fields),
-      estimatedCost: cost,
-      currency: modelInfo?.price?.currency || 'CNY',
+      estimatedCost: embedded ? embedCost?.total ?? null : cost,
+      currency: embedded ? 'CNY' : modelInfo?.price?.currency || 'CNY',
       createdAt: new Date().toISOString(),
     };
 
@@ -384,7 +467,8 @@ function PluginForm({
       buildPayload: () => ({
         pluginId: plugin.id,
         apiKey: credential.apiKey,
-        baseUrl: credential.baseUrl,
+        // 嵌入模式后端固定走网关，不传 baseUrl
+        ...(embedded ? {} : { baseUrl: credential.baseUrl }),
         model,
         facets,
         fields: submitFields,
@@ -400,7 +484,7 @@ function PluginForm({
       items.length > 0 ? `任务已创建，正在上传 ${items.length} 个素材...` : '任务已提交，正在生成中...',
       'success',
     );
-  }, [check, cost, credential, facets, fields, media, mediaFields, model, onConfigureCredential, parallelCount, plugin, promptField, schema, showToast]);
+  }, [check, cost, credential, embedCost, embedded, facets, fields, media, mediaFields, model, onConfigureCredential, parallelCount, plugin, promptField, schema, showToast]);
 
   const body = bodyEntries(schema);
 
@@ -436,7 +520,9 @@ function PluginForm({
           >
             <PackageOpen className="size-3.5 shrink-0" />
             <span>
-              还没有配置「{plugin.credential.label}」。点此前往设置 → 插件填写后即可提交任务。
+              {embedded
+                ? '还没有选择视频密钥。点此前往设置 →「模型与密钥」选择后即可提交任务。'
+                : `还没有配置「${plugin.credential.label}」。点此前往设置 → 插件填写后即可提交任务。`}
             </span>
           </button>
         )}
@@ -461,6 +547,9 @@ function PluginForm({
                     files,
                   )}
                   onRemove={index => handleRemoveMedia(entry.field.key, index)}
+                  onAddUrl={entry.field.allowRemoteUrl
+                    ? url => handleAddUrl(entry.field.key, (entry.field.kind || 'images') as MediaKind, entry.maxCount, url)
+                    : undefined}
                 />
               ))}
           </div>
@@ -497,7 +586,9 @@ function PluginForm({
         {/* 提交栏 */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/50 pt-3">
           {/* 插件没申报价格时整行不出现，留一个「预估计费：」空标签更像故障 */}
-          {model && cost !== null ? (
+          {embedCost ? (
+            <CostEstimateText text={embedCost.text} />
+          ) : !embedded && model && cost !== null ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>预估计费：</span>
               <PluginTotalPrice plugin={plugin} modelId={model} cost={cost} parallelCount={parallelCount} />
@@ -523,7 +614,7 @@ function PluginForm({
             ) : (
               <>
                 <Sparkles className="mr-2 size-4" />
-                开始生成{parallelCount > 1 ? ` x${parallelCount}` : (cost !== null && cost > 0 ? ` (¥${cost.toFixed(2)})` : '')}
+                开始生成{parallelCount > 1 ? ` x${parallelCount}` : (!embedded && cost !== null && cost > 0 ? ` (¥${cost.toFixed(2)})` : '')}
               </>
             )}
           </Button>

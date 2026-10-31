@@ -1,0 +1,26 @@
+{
+  "model": "seedance-2.5",
+  "method": "POST",
+  "url": "https://upstream.test/api/v3/contents/generations/tasks",
+  "body": {
+    "model": "seedance-2.5",
+    "content": [
+      {
+        "type": "text",
+        "text": "一只猫"
+      },
+      {
+        "type": "video_url",
+        "video_url": {
+          "url": "https://host.test/api/nova/plugin-media/source.mp4"
+        },
+        "role": "reference_video"
+      }
+    ],
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "generate_audio": true,
+    "watermark": false,
+    "omni_reference_task_type": "edit"
+  }
+}

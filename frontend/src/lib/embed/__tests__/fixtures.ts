@@ -30,3 +30,34 @@ export const PLAZA: PlazaGroup[] = [
     ],
   },
 ];
+
+/** C6 格式的视频分档：基础价为 480p 普通价，其余每档一个 interval。 */
+function videoTiers(tiers: Record<string, number>) {
+  return Object.entries(tiers).map(([tier_label, per_request_price]) => ({
+    min_tokens: 0, max_tokens: null, tier_label, input_price: null, output_price: null, per_request_price,
+  }));
+}
+
+/** Seedance 视频分组（id 103）：change-01 的售价表，倍率 1。 */
+export const VIDEO_PLAZA: PlazaGroup[] = [
+  {
+    id: 103,
+    name: 'Seedance 视频',
+    platform: 'openai',
+    rate_multiplier: 1,
+    models: [
+      {
+        name: 'seedance-2.0', platform: 'openai', pricing: {
+          billing_mode: 'video', input_price: null, output_price: null, per_request_price: 0.5318,
+          intervals: videoTiers({ '720p': 0.75, '1080p': 1.875, '4k': 3.75, '480p-ref': 0.5956, '720p-ref': 0.9075, '1080p-ref': 2.2575, '4k-ref': 4.665 }),
+        },
+      },
+      {
+        name: 'seedance-2.5', platform: 'openai', pricing: {
+          billing_mode: 'video', input_price: null, output_price: null, per_request_price: 0.7446,
+          intervals: videoTiers({ '720p': 1.125, '1080p': 2.775, '480p-ref': 0.8616, '720p-ref': 1.3575, '1080p-ref': 3.3525 }),
+        },
+      },
+    ],
+  },
+];

@@ -1,0 +1,19 @@
+{
+  "model": "seedance-2.0",
+  "method": "POST",
+  "url": "https://upstream.test/api/v3/contents/generations/tasks",
+  "body": {
+    "content": [
+      {
+        "type": "text",
+        "text": "一只猫"
+      }
+    ],
+    "resolution": "4k",
+    "ratio": "adaptive",
+    "duration": -1,
+    "generate_audio": true,
+    "watermark": false,
+    "model": "seedance-2.0"
+  }
+}

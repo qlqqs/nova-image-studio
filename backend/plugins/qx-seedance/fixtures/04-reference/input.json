@@ -1,0 +1,24 @@
+{
+  "facets": {
+    "targetModel": "seedance-2.5",
+    "mode": "reference"
+  },
+  "fields": {
+    "prompt": "一只猫",
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "duration": 5,
+    "generate_audio": true
+  },
+  "media": {
+    "referenceImages": [
+      "https://media.test/image.png"
+    ],
+    "referenceVideos": [
+      "https://media.test/video.mp4"
+    ],
+    "referenceAudios": [
+      "https://media.test/audio.mp3"
+    ]
+  }
+}

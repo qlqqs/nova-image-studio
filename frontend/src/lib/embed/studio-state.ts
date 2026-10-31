@@ -4,12 +4,13 @@
  */
 import { getCurrentUser, listGatewayModels, listKeys, getWorkbenchDefaults, saveWorkbenchPrefs, type Sub2ApiKey } from '@/lib/embed/sub2api-client';
 import { isHiddenModel, keyUnavailableReason, modelsForPurpose, pickDefaultModel } from '@/lib/embed/key-policy';
+import type { RowSelection } from '@/lib/embed/embed-registry';
 import { buildEmbedRegistry, loadStudioPrefs, saveStudioPrefs, type StudioPrefs } from '@/lib/embed/embed-registry';
 import { clearEmbedRegistry, setEmbedRegistry } from '@/lib/embed/registry-store';
 import { setBalanceFromUser } from '@/lib/embed/balance';
 import { clearPlazaCache, loadPlazaGroups } from '@/lib/embed/cost-estimate';
 
-import { defaultWorkbenchKey, defaultStudioPrefs, setWorkbenchTextDefault } from './workbench-defaults';
+import { defaultWorkbenchKey, defaultStudioPrefs, setWorkbenchTextDefault, soleVideoKey } from './workbench-defaults';
 import { showEmbedNotice } from './notices';
 let persistentPrefs = false;
 let sessionGeneration = 0;
@@ -41,6 +42,21 @@ export function getStudioPrefs(): StudioPrefs {
 
 export function isKeyUsable(key: Sub2ApiKey): boolean {
   return !keyUnavailableReason(key);
+}
+
+/** 视频（插件任务）用的 Key 与默认模型；Key 不存在或不可用时为 null。 */
+export function videoSelectionOf(keyList: Sub2ApiKey[], selected: StudioPrefs): { key: Sub2ApiKey; model: string } | null {
+  const row = selected.video;
+  const key = row ? keyList.find((item) => item.id === row.keyId) : undefined;
+  return row && key && isKeyUsable(key) ? { key, model: row.model } : null;
+}
+
+/** sub2api 工作台偏好只保存生图与对话两行；视频行只在本地，保存后合并回来。 */
+function withVideo(saved: StudioPrefs, video: RowSelection | undefined): StudioPrefs {
+  const next: StudioPrefs = { ...saved };
+  delete next.video;
+  if (video) next.video = video;
+  return next;
 }
 
 function modelsOfKey(key: Sub2ApiKey): Promise<string[]> {
@@ -91,9 +107,10 @@ export function setStudioKeys(next: Sub2ApiKey[]): Promise<void> {
 /** 设置页修改某一行（或清空）。只持久化 { keyId, model }。 */
 export async function applyStudioPrefs(next: StudioPrefs): Promise<void> {
   const generation = sessionGeneration;
-  const saved = persistentPrefs ? await saveWorkbenchPrefs(next) : next;
+  const remote = withVideo(next, undefined);
+  const saved = persistentPrefs ? await saveWorkbenchPrefs(remote) : remote;
   if (generation !== sessionGeneration) return;
-  prefs = { ...saved };
+  prefs = withVideo(saved, next.video);
   saveStudioPrefs(prefs);
   return rebuildRegistry();
 }
@@ -116,8 +133,9 @@ export async function bootstrapStudio(expectedUserId: number): Promise<void> {
   keyModels = new Map();
   persistentPrefs = Boolean(defaults?.eligible || defaults?.initialized);
   setWorkbenchTextDefault(defaults?.eligible ? defaults.text_model : null);
+  const video = prefs.video;
   if (defaults?.initialized) {
-    prefs = defaults.preferences ?? {};
+    prefs = withVideo(defaults.preferences ?? {}, video);
     saveStudioPrefs(prefs);
   } else if (defaults?.eligible) {
     const hasExisting = Boolean(prefs.image || prefs.text);
@@ -134,13 +152,26 @@ export async function bootstrapStudio(expectedUserId: number): Promise<void> {
         }
       }
     }
-    const saved = await saveWorkbenchPrefs(prefs, true);
+    const saved = await saveWorkbenchPrefs(withVideo(prefs, undefined), true);
     if (generation !== sessionGeneration) return;
-    prefs = saved;
+    prefs = withVideo(saved, video);
     saveStudioPrefs(prefs);
   }
   await replaceHiddenTextModel();
+  await selectSoleVideoKey(generation);
   await rebuildRegistry();
+}
+
+/** 还没选视频 Key、且只有一把支持视频的可用 Key 时自动选中它。 */
+async function selectSoleVideoKey(generation: number): Promise<void> {
+  if (prefs.video) return;
+  const plaza = await loadPlazaGroups().catch(() => null);
+  const key = soleVideoKey(keys, plaza);
+  if (!key) return;
+  const model = pickDefaultModel(modelsForPurpose(await modelsOfKey(key), 'video', plaza, key), 'video');
+  if (generation !== sessionGeneration || !model) return;
+  prefs = { ...prefs, video: { keyId: key.id, model } };
+  saveStudioPrefs(prefs);
 }
 
 /** 之前保存的对话模型现已隐藏（如 codex-auto-review）时换成默认模型；取不到模型列表就清空这一行。 */

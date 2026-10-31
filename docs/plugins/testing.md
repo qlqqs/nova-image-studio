@@ -1,6 +1,6 @@
 # 测试与调试
 
-插件是纯 JSON，所以调试的关键不是「跑起来看看」，而是**在不联网的情况下断言映射是否正确**。
+插件的映射可离线验证，调试的关键不是「跑起来看看」，而是**在不联网的情况下断言映射是否正确**。
 联网只能验证「这次通了」；fixtures 验证的是「所有分支都还是当初的样子」。
 
 ---
@@ -10,15 +10,15 @@
 ```bash
 cd backend
 npm run plugins:verify              # 校验全部插件
-npm run plugins:verify ccode-h3     # 只校验一个
+npm run plugins:verify qx-seedance     # 只校验一个
 ```
 
 输出：
 
 ```
-✓ ccode-h3@1.0.0 结构校验通过（8 个模型）
-    ✓ 01-standard-768p-text2video
-    ✓ 02-standard-4k-with-reference
+✓ qx-seedance@1.0.0 结构校验通过（2 个模型）
+    ✓ 01-t2v
+    ✓ 02-i2v
     ...
 全部通过
 ```
@@ -56,8 +56,7 @@ backend/plugins/my-plugin/fixtures/
 }
 ```
 
-素材 URL 必须是 `.../api/nova/plugin-media/<文件名>` 形式——后端只接受本机素材地址，
-fixtures 走的是同一套校验。
+素材使用上传地址；schema 标注 `allowRemoteUrl: true` 时也接受 HTTPS 外链。fixtures 与线上共用权威校验。
 
 `input.json` 会先经过后端的权威校验，所以一个用例同时也在测**约束是否写对了**：
 2K 缺参考图、量化版配首尾帧这类组合会在这一步就报错。
@@ -106,17 +105,11 @@ fixtures 走的是同一套校验。
 
 ### 建议覆盖的用例
 
-参考 `backend/plugins/ccode-h3/fixtures/`，它覆盖了：
-
-| 用例 | 在验证什么 |
-| --- | --- |
-| 最简文生视频 | 可选字段全都不出现 |
-| 带全部素材 + 超分档位 | `$switch` 出的互斥字段、三类素材都传上 |
-| 首尾帧模式 | `concat` 拼接、`workflow_id` 只在这个模式出现、隐藏槽位的残留被丢弃 |
-| 最弱档位 | `maxCount.byFacet` 收紧后仍能提交 |
-| 上游失败 | 错误文案取值路径 |
-| 上游排队 | `queued` 词表（含大小写差异） |
-| 完成但没给 URL | `fallbackUrl` 生效 |
+参考 `backend/plugins/qx-seedance/fixtures/`：六种模式各一个完整 body 快照，包含上传地址、
+HTTPS 外链、首尾帧 role、混合参考素材及 edit/extend 的 omni_reference_task_type。
+另有三个变更 01 快照：2.0 的 4k + duration=-1、2.5 的 30 张参考图 + 10 个参考音频、
+2.0 的 720p / 5 秒 / adaptive 默认值，总计 9 个用例。
+状态映射、空产物、协议/大小/超时限制、签名及归属由 backend/test/ 下测试覆盖。
 
 ---
 
@@ -147,7 +140,7 @@ const { buildContext } = require('./plugin-runtime/executor');
 const p = r.getPlugin('my-plugin');
 const n = validateAndNormalizeInput(p, require('./plugins/my-plugin/fixtures/01-basic/input.json'));
 const ctx = buildContext({ plugin: p, baseUrl: 'https://upstream.test', apiKey: 'sk-x', ...n });
-console.log(JSON.stringify(resolveTemplate(p.provider.submit.body, ctx), null, 2));
+console.log(JSON.stringify(p.driver ? p.driver.buildSubmit(ctx).body : resolveTemplate(p.provider.submit.body, ctx), null, 2));
 "
 ```
 

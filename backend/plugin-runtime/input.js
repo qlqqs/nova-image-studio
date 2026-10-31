@@ -64,7 +64,8 @@ function resolveMaxCount(field, facets) {
 
 /** 选项在当前组合下是否可选 */
 function isOptionAvailable(option, scope) {
-  return matchCondition(option.availableWhen, scope);
+  return matchCondition(option.availableWhen, scope)
+    && !(option.unavailableWhen !== undefined && matchCondition(option.unavailableWhen, scope));
 }
 
 /**
@@ -79,9 +80,16 @@ function resolveModelFromFacets(uiSchema, facets) {
   return match ? match.model : null;
 }
 
-/** 素材 URL 必须是本机 /api/nova/plugin-media/ 地址：不允许插件用任意外链绕过素材管理。 */
+/** 上传素材使用内部地址；支持链接输入的字段另可使用 HTTPS。 */
 function isLocalMediaUrl(url) {
-  return typeof url === 'string' && /\/api\/nova\/plugin-media\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(url);
+  return typeof url === 'string' && /^(?:https?:\/\/[^/?#]+)?\/api\/nova\/plugin-media\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(url) && !url.split('/').pop().includes('..');
+}
+
+function isRemoteMediaUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && !url.username && !url.password;
+  } catch { return false; }
 }
 
 /**
@@ -151,7 +159,7 @@ function validateAndNormalizeInput(plugin, input) {
         throw new InputError(`「${label}」最多 ${maxCount} 个，收到 ${list.length} 个`);
       }
       for (const url of list) {
-        if (!isLocalMediaUrl(url)) {
+        if (!isLocalMediaUrl(url) && !(field.allowRemoteUrl && isRemoteMediaUrl(url))) {
           throw new InputError(`「${label}」含无效的素材地址`);
         }
       }
@@ -160,7 +168,7 @@ function validateAndNormalizeInput(plugin, input) {
       }
       if (list.length > 0) {
         media[field.key] = list;
-        mediaUrls.push(...list);
+        mediaUrls.push(...list.filter(isLocalMediaUrl));
         mediaCountByKind[field.kind] = (mediaCountByKind[field.kind] || 0) + list.length;
       }
       continue;
@@ -169,12 +177,12 @@ function validateAndNormalizeInput(plugin, input) {
     const raw = rawFields[field.key];
 
     if (field.type === 'switch') {
-      fields[field.key] = raw === true;
+      fields[field.key] = raw === undefined ? field.default === true : raw === true;
       continue;
     }
 
     if (field.type === 'select' || field.type === 'select-grid') {
-      const option = field.options.find(item => String(item.value) === String(raw));
+      const option = field.options.find(item => String(item.value) === String(raw === undefined ? field.default : raw));
       if (!option) {
         throw new InputError(`参数「${label}」的取值无效: ${JSON.stringify(raw)}`);
       }
@@ -208,7 +216,9 @@ function validateAndNormalizeInput(plugin, input) {
     }
   }
 
-  return { model: resolvedModel, facets, fields, media, mediaUrls };
+  const normalized = { model: resolvedModel, facets, fields, media, mediaUrls };
+  if (plugin.driver?.validateInput) plugin.driver.validateInput(normalized);
+  return normalized;
 }
 
 module.exports = {

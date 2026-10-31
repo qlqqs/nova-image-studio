@@ -40,7 +40,7 @@ class PluginRequestError extends Error {
  * 出网前的统一闸门：协议必须是 https（或显式允许 http 的场景由 allowlist 承担），
  * 主机必须在 manifest.permissions.hosts 里，且不能是内网地址。
  */
-function assertUrlAllowed(plugin, url, what) {
+function assertUrlAllowed(plugin, url, what, embed) {
   let parsed;
   try {
     parsed = new URL(String(url));
@@ -49,6 +49,12 @@ function assertUrlAllowed(plugin, url, what) {
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new PluginRequestError(`插件 ${plugin.id} 的${what}只允许 http/https 协议`, { fatal: true });
+  }
+  if (embed?.enabled) {
+    if (parsed.origin !== embed.gatewayUrl || parsed.username || parsed.password) {
+      throw new PluginRequestError('嵌入模式插件只能访问固定网关', { fatal: true });
+    }
+    return parsed.toString();
   }
   if (isLocallyScopedHost(parsed.hostname)) {
     throw new PluginRequestError(`插件 ${plugin.id} 不能访问内网地址 ${parsed.hostname}`, { fatal: true });
@@ -69,9 +75,10 @@ function normalizeBaseUrl(url) {
 /**
  * 构造模板上下文。apiKey 只在这里出现一次，日志与入库都不会带上它。
  */
-function buildContext({ plugin, baseUrl, apiKey, model, facets, fields, media, upstreamTaskId, publicBaseUrl }) {
+function buildContext({ plugin, baseUrl, apiKey, model, facets, fields, media, upstreamTaskId, publicBaseUrl, embed, clientIp }) {
   return {
     baseUrl: normalizeBaseUrl(baseUrl || (plugin.manifest.credential.defaultBaseUrl || '')),
+    embed, clientIp,
     apiKey: String(apiKey || ''),
     model: String(model || ''),
     facet: { ...(facets || {}) },
@@ -84,11 +91,14 @@ function buildContext({ plugin, baseUrl, apiKey, model, facets, fields, media, u
   };
 }
 
-async function fetchWithTimeout(url, init, timeoutMs) {
+async function fetchWithTimeout(url, init, timeoutMs, context) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const securedInit = context?.embed?.enabled ? context.embed.prepareFetch(url, init, context.clientIp) : { ...init, redirect: 'error' };
+    const response = await fetch(url, { ...securedInit, signal: controller.signal });
+    const text = await response.text();
+    return { response, text };
   } finally {
     clearTimeout(timer);
   }
@@ -111,7 +121,7 @@ function summarizeBody(text) {
 }
 
 function resolveRequest(spec, context, plugin, what) {
-  const url = assertUrlAllowed(plugin, resolveTemplate(spec.url, context), what);
+  const url = assertUrlAllowed(plugin, resolveTemplate(spec.url, context), what, context.embed);
   const method = String(spec.method || 'GET').toUpperCase();
   const headers = {};
   for (const [key, value] of Object.entries(resolveTemplate(spec.headers || {}, context))) {
@@ -142,7 +152,7 @@ async function submitTask(plugin, context) {
     if (!req || typeof req !== 'object' || !req.url) {
       throw new PluginRequestError(`插件 ${plugin.id} 的 buildSubmit 必须返回包含 url 的对象`, { fatal: true });
     }
-    const url = assertUrlAllowed(plugin, req.url, '创建请求');
+    const url = assertUrlAllowed(plugin, req.url, '创建请求', context.embed);
     const method = String(req.method || 'POST').toUpperCase();
     const headers = {};
     for (const [key, value] of Object.entries(req.headers || {})) {
@@ -156,8 +166,7 @@ async function submitTask(plugin, context) {
       }
     }
 
-    const response = await fetchWithTimeout(url, init, timeoutMs);
-    const text = await response.text();
+    const { response, text } = await fetchWithTimeout(url, init, timeoutMs, context);
     const payload = parseJsonSafely(text);
 
     if (!response.ok) {
@@ -201,8 +210,7 @@ async function submitTask(plugin, context) {
     || DEFAULT_SUBMIT_TIMEOUT_MS;
 
   const { url, init } = resolveRequest(spec, context, plugin, '创建请求');
-  const response = await fetchWithTimeout(url, init, timeoutMs);
-  const text = await response.text();
+  const { response, text } = await fetchWithTimeout(url, init, timeoutMs, context);
   const payload = parseJsonSafely(text);
 
   if (!response.ok || !payload) {
@@ -285,7 +293,7 @@ async function pollTask(plugin, context) {
     if (!req || typeof req !== 'object' || !req.url) {
       throw new PluginRequestError(`插件 ${plugin.id} 的 buildQuery 必须返回包含 url 的对象`, { fatal: true });
     }
-    const url = assertUrlAllowed(plugin, req.url, '查询请求');
+    const url = assertUrlAllowed(plugin, req.url, '查询请求', context.embed);
     const method = String(req.method || 'GET').toUpperCase();
     const headers = {};
     for (const [key, value] of Object.entries(req.headers || {})) {
@@ -296,8 +304,7 @@ async function pollTask(plugin, context) {
       init.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     }
 
-    const response = await fetchWithTimeout(url, init, timeoutMs);
-    const text = await response.text();
+    const { response, text } = await fetchWithTimeout(url, init, timeoutMs, context);
     const payload = parseJsonSafely(text);
 
     if (!response.ok || !payload) {
@@ -319,8 +326,7 @@ async function pollTask(plugin, context) {
   const timeoutMs = Number(spec.timeoutMs) || DEFAULT_POLL_TIMEOUT_MS;
   const { url, init } = resolveRequest(spec, context, plugin, '查询请求');
 
-  const response = await fetchWithTimeout(url, init, timeoutMs);
-  const text = await response.text();
+  const { response, text } = await fetchWithTimeout(url, init, timeoutMs, context);
   const payload = parseJsonSafely(text);
 
   if (!response.ok || !payload) {
@@ -358,7 +364,7 @@ function resolvePollTiming(plugin) {
       provider.maxTotalMs ?? runtime.maxPollMs,
       DEFAULT_MAX_POLL_MS,
       60 * 1000,
-      6 * 60 * 60 * 1000,
+      12 * 60 * 60 * 1000,
     ),
   };
 }

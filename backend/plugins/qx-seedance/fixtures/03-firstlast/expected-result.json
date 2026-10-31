@@ -1,0 +1,12 @@
+{
+  "state": "completed",
+  "progress": 100,
+  "assets": [
+    {
+      "kind": "video",
+      "mime": "video/mp4",
+      "url": "https://cdn.test/video.mp4",
+      "durationSec": 5
+    }
+  ]
+}

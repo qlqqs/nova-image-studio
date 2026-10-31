@@ -1,6 +1,6 @@
-import type { Sub2ApiKey, WorkbenchDefaults } from './sub2api-client';
+import type { PlazaGroup, Sub2ApiKey, WorkbenchDefaults } from './sub2api-client';
 import type { StudioPrefs } from './embed-registry';
-import { keyUnavailableReason, modelsForPurpose, groupPurposeSupport } from './key-policy';
+import { filterKeysForPurpose, keyUnavailableReason, modelsForPurpose, groupPurposeSupport } from './key-policy';
 
 /** Match both the display name and the actual group, never an arbitrary same-name key. */
 export function defaultWorkbenchKey(keys: Sub2ApiKey[], state: WorkbenchDefaults): Sub2ApiKey | undefined {
@@ -17,6 +17,11 @@ export function defaultStudioPrefs(key: Sub2ApiKey, models: string[], state: Wor
     prefs.text = { keyId: key.id, model: state.text_model };
   }
   return prefs;
+}
+/** The only usable key whose group supports video; with more than one the user picks in settings. */
+export function soleVideoKey(keys: Sub2ApiKey[], plaza: PlazaGroup[] | null): Sub2ApiKey | undefined {
+  const usable = filterKeysForPurpose(keys, 'video', Date.now(), plaza).filter(option => !option.disabledReason);
+  return usable.length === 1 ? usable[0].key : undefined;
 }
 // Runtime only, cleared on revoke. Never enable defaults for standalone or existing users.
 let textDefault: string | null = null;

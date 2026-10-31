@@ -54,14 +54,21 @@ export function keyUnavailableReason(key: Sub2ApiKey, now: number = Date.now()):
   return '';
 }
 
+/** 视频分组：模型广场里该分组有按视频计费或名为 seedance 的模型。 */
+function isVideoGroup(group: Sub2ApiGroup, plaza: PlazaGroup[] | null | undefined): boolean {
+  const found = plaza?.find((item) => item.id === group.id);
+  return Boolean(found?.models.some((model) => model.pricing?.billing_mode === 'video' || /seedance/i.test(model.name)));
+}
+
 /**
  * 分组对该用途的支持情况：
  *   - null：该平台与用途无关，Key 不出现在下拉里；
  *   - ''：支持；
  *   - 其他字符串：可列出但置灰的原因。
+ * 视频用途按模型广场判断，广场不可用时没有可选的视频分组。
  */
-export function groupPurposeSupport(group: Sub2ApiGroup | null | undefined, purpose: StudioPurpose): string | null {
-  if (purpose === 'video') return null;
+export function groupPurposeSupport(group: Sub2ApiGroup | null | undefined, purpose: StudioPurpose, plaza?: PlazaGroup[] | null): string | null {
+  if (purpose === 'video') return group && isVideoGroup(group, plaza) ? '' : null;
   if (!group) return purpose === 'text' ? '' : null;
   const platform = normalizedPlatform(group);
   if (purpose === 'text') return '';
@@ -73,22 +80,22 @@ export function groupPurposeSupport(group: Sub2ApiGroup | null | undefined, purp
 }
 
 /** 按用途列出 Key：不相关平台过滤掉；禁用 / 过期 / 额度用完 / 分组不支持的置灰并给出原因。可用的排在前面。 */
-export function filterKeysForPurpose(keys: Sub2ApiKey[], purpose: StudioPurpose, now: number = Date.now()): KeyOption[] {
+export function filterKeysForPurpose(keys: Sub2ApiKey[], purpose: StudioPurpose, now: number = Date.now(), plaza?: PlazaGroup[] | null): KeyOption[] {
   const options: KeyOption[] = [];
   for (const key of keys) {
-    const support = groupPurposeSupport(key.group, purpose);
+    const support = groupPurposeSupport(key.group, purpose, plaza);
     if (support === null && key.group) continue;
     const unavailable = keyUnavailableReason(key, now);
-    if (unavailable === '未绑定分组' && purpose === 'image') continue;
+    if (unavailable === '未绑定分组' && purpose !== 'text') continue;
     options.push({ key, disabledReason: unavailable || support || '' });
   }
   return options.sort((a, b) => Number(Boolean(a.disabledReason)) - Number(Boolean(b.disabledReason)));
 }
 
 /** 一键创建时可选的分组（按用途），生图与对话都支持的分组排在前面。 */
-export function filterGroupsForPurpose(groups: Sub2ApiGroup[], purpose: StudioPurpose): Sub2ApiGroup[] {
+export function filterGroupsForPurpose(groups: Sub2ApiGroup[], purpose: StudioPurpose, plaza?: PlazaGroup[] | null): Sub2ApiGroup[] {
   return groups
-    .filter((group) => (!group.status || group.status === 'active') && groupPurposeSupport(group, purpose) === '')
+    .filter((group) => (!group.status || group.status === 'active') && groupPurposeSupport(group, purpose, plaza) === '')
     .sort((a, b) => Number(!supportsImageAndText(a)) - Number(!supportsImageAndText(b)));
 }
 
@@ -98,9 +105,12 @@ export function supportsImageAndText(group: Sub2ApiGroup | null | undefined): bo
 
 export const STUDIO_KEY_NAME = '创作工作台';
 
-/** 一键创建的 Key 名：分组生图与对话都能用时只建一把通用的「创作工作台」，否则按用途加后缀。 */
-export function studioKeyName(group: Sub2ApiGroup | null | undefined, purposeLabel: string): string {
-  return supportsImageAndText(group) ? STUDIO_KEY_NAME : `${STUDIO_KEY_NAME}-${purposeLabel}`;
+/**
+ * 一键创建的 Key 名：生图 / 对话在分组两者都能用时只建一把通用的「创作工作台」，否则按用途加后缀。
+ * 视频分组（网关要求开启生图）总是单独一把「创作工作台-视频」。
+ */
+export function studioKeyName(group: Sub2ApiGroup | null | undefined, purposeLabel: string, purpose?: StudioPurpose): string {
+  return purpose !== 'video' && supportsImageAndText(group) ? STUDIO_KEY_NAME : `${STUDIO_KEY_NAME}-${purposeLabel}`;
 }
 
 const IMAGE_NAME_PATTERNS = [
@@ -288,6 +298,29 @@ export function perImagePrice(group: PlazaGroup, model: PlazaModel, outputSize?:
   return base == null ? null : base * rate;
 }
 
+/** 视频计费分辨率的写法归一（同 sub2api LookupVideoBillingResolution）：4k / 2160p / 2160 / uhd → 4k。 */
+export function normalizeVideoResolution(resolution: string | undefined): string {
+  const value = String(resolution || '').trim().toLowerCase();
+  if (value === '2160p' || value === '2160' || value === 'uhd') return '4k';
+  return value;
+}
+
+/**
+ * 视频每秒单价（已乘生效倍率）；非按秒计费或无定价返回 null。
+ * 分档按 intervals 的 tier_label（C6）：带参考视频取 `<分辨率>-ref`，没有时取同分辨率普通档，再没有取基础价 per_request_price。
+ */
+export function perSecondVideoPrice(group: PlazaGroup, model: PlazaModel, resolution?: string, withReference = false): number | null {
+  const pricing = model.pricing;
+  if (!pricing || pricing.billing_mode !== 'video') return null;
+  const rate = requestRate(group, model);
+  const tiers = (pricing.intervals || []).filter((item) => item.per_request_price != null);
+  const tierOf = (label: string) => tiers.find((item) => String(item.tier_label || '').trim().toLowerCase() === label);
+  const res = normalizeVideoResolution(resolution);
+  const tier = (withReference ? tierOf(`${res}-ref`) : undefined) ?? tierOf(res);
+  const price = tier ? tier.per_request_price : pricing.per_request_price;
+  return price == null ? null : price * rate;
+}
+
 /** 所选模型在该分组下的单价文案；无定价返回空串。 */
 export function formatModelPrice(group: PlazaGroup, model: PlazaModel): string {
   const pricing = model.pricing;
@@ -306,8 +339,13 @@ export function formatModelPrice(group: PlazaGroup, model: PlazaModel): string {
     return parts.length ? `${parts.join(' · ')} / 1M tokens` : '';
   }
   const rate = requestRate(group, model);
-  const unit = mode === 'image' ? '张' : '次';
+  const unit = mode === 'image' ? '张' : mode === 'video' ? '秒' : '次';
   const tiers = (pricing.intervals || []).filter((item) => item.per_request_price != null);
+  if (mode === 'video' && tiers.length > 0) {
+    // 视频分档多（分辨率 × 是否带参考视频），只显示最低价；具体单价在视频工作台按所选分辨率预估
+    const lowest = Math.min(...[pricing.per_request_price, ...tiers.map((item) => item.per_request_price)].filter((value): value is number => value != null));
+    return `${formatScaled(lowest * rate, 1)} 起 / 秒，按分辨率与参考视频分档`;
+  }
   if (tiers.length > 0) {
     return tiers
       .map((item) => `${item.tier_label ? `${item.tier_label} ` : ''}${formatScaled((item.per_request_price as number) * rate, 1)}`)

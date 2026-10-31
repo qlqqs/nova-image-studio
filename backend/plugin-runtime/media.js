@@ -1,19 +1,9 @@
 'use strict';
 
-/**
- * 插件参考素材的本机存储。
- *
- * 为什么要落盘：上游的视频接口普遍只接受 URL，不接受 base64 或 multipart 上传，
- * 所以素材先存本机，再把可公网访问的地址交给上游去拉。
- *
- * 注意 `/api/nova/plugin-media/<file>` 必须匿名可读，否则上游拉不到；
- * 文件名是随机 UUID，靠不可猜测性而不是鉴权来保护。素材按 TTL 定期清理，
- * 并在绑定任务后随任务一起删除。
- */
-
 const fs = require('fs');
 const path = require('path');
-const { createHash, randomUUID } = require('crypto');
+const { createHash, randomUUID, randomBytes, createHmac, timingSafeEqual } = require('crypto');
+const { serveFile: serveStoredFile } = require('./files');
 
 const MEDIA_EXT_BY_MIME = {
   'image/png': 'png',
@@ -54,9 +44,10 @@ const MEDIA_URL_PREFIX = '/api/nova/plugin-media/';
 /**
  * @param {object} deps 宿主注入的依赖，避免这个模块反过来 require server.js
  */
-function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError, getClientIp, normalizeBaseUrl }) {
+function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError, getClientIp, normalizeBaseUrl, dataDir }) {
   const MEDIA_DIR = process.env.NOVA_PLUGIN_MEDIA_DIR
-    || path.join(__dirname, '..', 'data', 'plugin-media');
+    || path.join(dataDir || path.join(__dirname, '..', 'data'), 'plugin-media');
+  let signingSecret;
   const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 
   function getTtlMs() {
@@ -80,6 +71,17 @@ function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError,
       CREATE INDEX IF NOT EXISTS idx_plugin_media_hash_task ON plugin_media(hash, task_id);
       CREATE INDEX IF NOT EXISTS idx_plugin_media_task ON plugin_media(task_id);
     `);
+    if (!db.prepare('PRAGMA table_info(plugin_media)').all().some(column => column.name === 'user_id')) {
+      db.exec('ALTER TABLE plugin_media ADD COLUMN user_id TEXT');
+    }
+    signingSecret = getRuntimeEnv().NOVA_MEDIA_SIGNING_SECRET;
+    if (!signingSecret) {
+      const keyPath = path.join(dataDir || path.dirname(MEDIA_DIR), 'media-signing.key');
+      fs.mkdirSync(path.dirname(keyPath), { recursive: true });
+      if (!fs.existsSync(keyPath)) fs.writeFileSync(keyPath, randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
+      fs.chmodSync(keyPath, 0o600);
+      signingSecret = fs.readFileSync(keyPath, 'utf8').trim();
+    }
   }
 
   /**
@@ -212,7 +214,9 @@ function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError,
       if (!fs.existsSync(MEDIA_DIR)) return;
       const ttlMs = getTtlMs();
       const now = Date.now();
+      const bound = new Set(db.prepare('SELECT file_name FROM plugin_media WHERE task_id IS NOT NULL').all().map(row => row.file_name));
       for (const name of fs.readdirSync(MEDIA_DIR)) {
+        if (bound.has(name)) continue;
         const filePath = path.join(MEDIA_DIR, name);
         try {
           if (now - fs.statSync(filePath).mtimeMs > ttlMs) {
@@ -271,9 +275,9 @@ function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError,
 
     ensureDir();
 
-    // 去重键带上 IP：同一用户重复选同一个文件时复用，不同用户上传同一文件各存一份。
+    // 嵌入模式按用户 ID 去重；独立模式沿用 IP，同一素材跨用户分别存储。
     const ip = getClientIp(req);
-    const hash = createHash('md5').update(String(ip || '')).update(buffer).digest('hex');
+    const hash = createHash('sha256').update(String(req.novaUser?.userId || ip || '')).update('\n').update(buffer).digest('hex');
     // 只复用还没绑定任务的记录：已绑定的会随那个任务被清理，复用会导致误删。
     const existing = db.prepare(
       'SELECT file_name FROM plugin_media WHERE hash = ? AND task_id IS NULL ORDER BY id DESC LIMIT 1',
@@ -286,36 +290,64 @@ function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError,
       fileName = `${randomUUID()}.${ext}`;
       fs.writeFileSync(path.join(MEDIA_DIR, fileName), buffer);
       db.prepare(`
-        INSERT INTO plugin_media (file_name, hash, kind, bytes, task_id, created_at)
-        VALUES (?, ?, ?, ?, NULL, ?)
-      `).run(fileName, hash, kind, buffer.length, new Date().toISOString());
+        INSERT INTO plugin_media (file_name, hash, kind, bytes, task_id, created_at, user_id)
+        VALUES (?, ?, ?, ?, NULL, ?, ?)
+      `).run(fileName, hash, kind, buffer.length, new Date().toISOString(), req.novaUser?.userId || null);
     }
 
-    return { url: `${baseUrl}${MEDIA_URL_PREFIX}${fileName}`, bytes: buffer.length };
+    return { url: `${baseUrl}${MEDIA_URL_PREFIX}${fileName}`, previewUrl: `${MEDIA_URL_PREFIX}${fileName}/preview`, bytes: buffer.length };
   }
 
-  /** 回读素材文件。上游要匿名拉取，所以调用方不鉴权。 */
-  function serveFile(res, fileName) {
-    const safeName = String(fileName || '');
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(safeName) || safeName.includes('..')) {
-      res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'Invalid file name' }));
-      return;
+  function safeFileName(fileName) {
+    return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(fileName || '')) && !fileName.includes('..');
+  }
+
+  function canPreview(fileName, user) {
+    const row = db.prepare('SELECT user_id FROM plugin_media WHERE file_name = ?').get(fileName);
+    return !!row && !!user && row.user_id === user.userId;
+  }
+
+  function validateForTask(media, plugin, user) {
+    for (const [key, urls] of Object.entries(media)) {
+      const field = plugin.uiSchema.fields.find(field => field.key === key);
+      for (const url of urls) {
+        const name = extractFileName(url);
+        if (!name) continue;
+        const row = db.prepare('SELECT * FROM plugin_media WHERE file_name = ?').get(name);
+        if (!row || row.task_id || row.kind !== field.kind || (user && row.user_id !== user.userId)
+          || !fs.existsSync(path.join(MEDIA_DIR, name))) {
+          throw createHttpError(404, 'NOT_FOUND', '素材不存在或已绑定任务');
+        }
+      }
     }
-    const filePath = path.join(MEDIA_DIR, safeName);
-    if (!fs.existsSync(filePath)) {
-      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: 'Not Found' }));
-      return;
-    }
-    const ext = path.extname(safeName).slice(1).toLowerCase();
-    const stat = fs.statSync(filePath);
-    res.writeHead(200, {
-      'Content-Type': CONTENT_TYPE_BY_EXT[ext] || 'application/octet-stream',
-      'Content-Length': stat.size,
-      'Cache-Control': 'public, max-age=3600',
-    });
-    fs.createReadStream(filePath).pipe(res);
+  }
+
+  function sign(fileName, exp) {
+    return createHmac('sha256', signingSecret).update(`${fileName}\n${exp}`).digest('hex');
+  }
+
+  function publicUrl(fileName, baseUrl, now = Date.now()) {
+    const exp = Math.floor(now / 1000) + 86400;
+    return `${baseUrl}/api/nova/public-media/${fileName}?exp=${exp}&sig=${sign(fileName, exp)}`;
+  }
+
+  function signedMedia(media, baseUrl) {
+    return Object.fromEntries(Object.entries(media).map(([key, urls]) => [key, urls.map(url => {
+      const name = extractFileName(url);
+      return name ? publicUrl(name, baseUrl) : url;
+    })]));
+  }
+
+  function verifySignature(fileName, exp, signature, now = Date.now()) {
+    if (!safeFileName(fileName) || !/^\d+$/.test(String(exp || '')) || Number(exp) <= Math.floor(now / 1000)
+      || !/^[a-f0-9]{64}$/.test(String(signature || ''))) return false;
+    return timingSafeEqual(Buffer.from(sign(fileName, exp), 'hex'), Buffer.from(signature, 'hex'));
+  }
+
+  function serveFile(req, res, fileName, cacheControl = 'private, no-store') {
+    if (!safeFileName(fileName)) { res.writeHead(404); res.end(); return; }
+    const ext = path.extname(fileName).slice(1).toLowerCase();
+    serveStoredFile(req, res, path.join(MEDIA_DIR, fileName), CONTENT_TYPE_BY_EXT[ext] || 'application/octet-stream', cacheControl);
   }
 
   return {
@@ -326,6 +358,12 @@ function createMediaStore({ db, getRuntimeEnv, parseIntegerEnv, createHttpError,
     getLimitsForClient,
     handleUpload,
     serveFile,
+    canPreview,
+    validateForTask,
+    signedMedia,
+    verifySignature,
+    publicUrl,
+    resolvePublicBaseUrl,
     bindToTask,
     deleteTaskMedia,
     cleanupExpired,

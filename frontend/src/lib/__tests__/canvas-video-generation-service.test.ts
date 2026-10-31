@@ -61,26 +61,26 @@ function makeRefItem(id: string, name: string, type = "image/png"): CanvasVideoM
 
 /** 最小可用视频插件：一个档位 facet + 首帧/参考图片/参考视频素材槽 + 提示词 textarea。 */
 const plugin: InstalledPlugin = {
-  id: "ccode-h3",
-  name: "Ccode H3 视频",
+  id: "test-video",
+  name: "测试视频插件",
   version: "1.0.0",
   kind: "video",
   description: "",
   author: "",
   homepage: "",
   outputs: ["video"],
-  credential: { source: "client", label: "key", defaultBaseUrl: "https://pro.ccode.vip" },
+  credential: { source: "client", label: "key", defaultBaseUrl: "https://video.example.com" },
   media: { images: { maxCount: 9 }, videos: { maxCount: 3 }, audios: { maxCount: 3 } },
   models: [
-    { id: "minimax-h3-original-768p", name: "H3 768P", shortName: "H3 768P", price: { unit: "per-second", amount: 0.15 } },
-    { id: "minimax-h3-original-cf-2k", name: "H3 2K", shortName: "H3 2K", price: null },
+    { id: "test-video-768p", name: "768P", shortName: "768P", price: { unit: "per-second", amount: 0.15 } },
+    { id: "test-video-2k", name: "2K", shortName: "2K", price: null },
   ],
   uiSchema: {
     apiVersion: 1,
     modelSelector: {
       facets: [{ key: "tier", label: "档位" }],
       facetOptions: { tier: [{ value: "standard", label: "Standard" }] },
-      variants: [{ model: "minimax-h3-original-768p", tier: "standard" }],
+      variants: [{ model: "test-video-768p", tier: "standard" }],
     },
     fields: [
       { key: "prompt", type: "textarea", label: "提示词", required: true },
@@ -101,7 +101,7 @@ beforeEach(() => {
   getPluginTaskMock.mockReset();
   ackPluginTaskMock.mockReset().mockResolvedValue(undefined);
   imageToDataUrlMock.mockReset();
-  getPluginCredentialMock.mockReset().mockReturnValue({ apiKey: "sk-test", baseUrl: "https://pro.ccode.vip" });
+  getPluginCredentialMock.mockReset().mockReturnValue({ apiKey: "sk-test", baseUrl: "https://video.example.com" });
 });
 
 afterEach(() => {
@@ -150,10 +150,10 @@ describe("submitCanvasVideoGeneration", () => {
     expect(uploadPluginMediaMock).toHaveBeenCalledTimes(3);
     // 提交载荷：插件/凭据/模型/facet/字段（含提示词写入第一个 textarea 字段）/media 按槽分组
     expect(createPluginTaskMock).toHaveBeenCalledWith({
-      pluginId: "ccode-h3",
+      pluginId: "test-video",
       apiKey: "sk-test",
-      baseUrl: "https://pro.ccode.vip",
-      model: "minimax-h3-original-768p",
+      baseUrl: "https://video.example.com",
+      model: "test-video-768p",
       facets,
       fields: { prompt: "画布提示词", seconds: 4 },
       media: {
@@ -187,7 +187,7 @@ describe("submitCanvasVideoGeneration", () => {
 
     expect(imageToDataUrlMock).toHaveBeenCalledWith(ref.referenceImage);
     expect(uploadPluginMediaMock).toHaveBeenCalledWith(
-      "ccode-h3",
+      "test-video",
       expect.objectContaining({ name: "画布图.png" }),
       "images",
       expect.anything(),

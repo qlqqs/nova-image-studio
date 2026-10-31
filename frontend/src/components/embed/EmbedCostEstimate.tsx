@@ -26,13 +26,18 @@ export function EmbedCostEstimate({ model, outputSize, count, className }: {
   }, [embedded, model]);
 
   const estimate = embedded ? estimateImageCost(plaza, keys, model, outputSize, count) : null;
-  if (!estimate) return null;
+  return <CostEstimateText text={estimate?.text} className={className} />;
+}
+
+/** 预估费用文案（生图与视频共用）；无文案时不渲染。 */
+export function CostEstimateText({ text, className }: { text?: string; className?: string }) {
+  if (!text) return null;
   return (
     <span
       className={cn('self-center whitespace-nowrap text-xs tabular-nums text-muted-foreground', className)}
       title="按模型广场单价预估，实际以扣费为准"
     >
-      {estimate.text}
+      {text}
     </span>
   );
 }

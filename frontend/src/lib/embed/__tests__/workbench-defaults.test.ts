@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { defaultWorkbenchKey, defaultStudioPrefs, setWorkbenchTextDefault } from '../workbench-defaults';
+import { defaultWorkbenchKey, defaultStudioPrefs, setWorkbenchTextDefault, soleVideoKey } from '../workbench-defaults';
 import { buildSimpleProxyTextRequestBody } from '../../nova-proxy-text';
-import { makeKey } from './fixtures';
+import { makeKey, VIDEO_PLAZA } from './fixtures';
 import type { WorkbenchDefaults } from '../sub2api-client';
 const state: WorkbenchDefaults = { eligible: true, initialized: false, group_id: 102, group_name: 'Codex 稳定分组',
   preferences: {}, text_model: 'gpt-6.1-sol', image_model: 'gpt-image-2.5-sunburst', reasoning_effort: 'medium' };
@@ -28,5 +28,18 @@ describe('signup defaults', () => {
       .toMatchObject({ reasoning_effort: 'medium' });
     setWorkbenchTextDefault(null);
     expect(buildSimpleProxyTextRequestBody('openai-chat-completions', state.text_model, [])).not.toHaveProperty('reasoning_effort');
+  });
+});
+
+describe('video key auto-selection', () => {
+  const video = makeKey(3, 'openai'); // group 103 sells seedance
+  it('selects the only usable key whose group supports video', () => {
+    expect(soleVideoKey([key, video], VIDEO_PLAZA)?.id).toBe(3);
+    expect(soleVideoKey([key, video, { ...video, id: 4, status: 'inactive' }], VIDEO_PLAZA)?.id).toBe(3);
+  });
+  it('leaves the choice to the user with several video keys, none, or no model plaza', () => {
+    expect(soleVideoKey([video, { ...video, id: 4 }], VIDEO_PLAZA)).toBeUndefined();
+    expect(soleVideoKey([key], VIDEO_PLAZA)).toBeUndefined();
+    expect(soleVideoKey([video], null)).toBeUndefined();
   });
 });

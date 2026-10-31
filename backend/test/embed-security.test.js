@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const { createEmbedSecurity } = require('../embed/security');
 
-const env = { NOVA_EMBED_MODE: '1', SUB2API_GATEWAY_URL: 'http://gateway:8080' };
+const env = { NOVA_EMBED_MODE: '1', SUB2API_GATEWAY_URL: 'http://gateway:8080', NOVA_PUBLIC_BASE_URL: 'https://studio.test' };
 const request = (headers = {}, address = '127.0.0.1') => ({
   socket: { remoteAddress: address }, headers: {
     'x-sub2api-user-id': '12', 'x-sub2api-user-role': 'user',
@@ -21,6 +21,7 @@ test('standalone remains opt-in; embedded configuration fails closed', () => {
   for (const days of ['0', '-1', 'NaN', '0.5']) {
     assert.throws(() => createEmbedSecurity({ ...env, NOVA_RETENTION_DAYS: days }));
   }
+  assert.throws(() => createEmbedSecurity({ ...env, NOVA_PUBLIC_BASE_URL: '' }), /NOVA_PUBLIC_BASE_URL/);
   assert.equal(createEmbedSecurity(env).retentionMs, 7 * 86400000);
 });
 

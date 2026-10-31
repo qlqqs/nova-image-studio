@@ -15,7 +15,7 @@ import {
   pickDefaultModel,
   studioKeyName,
 } from '@/lib/embed/key-policy';
-import { makeKey, PLAZA } from './fixtures';
+import { makeKey, PLAZA, VIDEO_PLAZA } from './fixtures';
 
 const NOW = Date.parse('2026-10-24T00:00:00Z');
 
@@ -66,8 +66,24 @@ describe('Key 按用途过滤', () => {
     expect(options.filter((option) => !option.disabledReason)).toHaveLength(7);
   });
 
-  it('视频一期不列出任何 Key', () => {
-    expect(filterKeysForPurpose(keys, 'video', NOW)).toEqual([]);
+  it('视频：只列出模型广场里有视频计费或 seedance 模型的分组；广场不可用时不列出', () => {
+    const videoKeys = [
+      makeKey(3, 'openai'), // group 103：VIDEO_PLAZA
+      makeKey(4, 'openai', { status: 'inactive' }, { id: 104 }),
+      makeKey(1, 'openai'), // group 101：只有生图与对话模型
+      makeKey(9, 'openai', { group_id: null, group: null }),
+    ];
+    const plaza = [
+      ...PLAZA,
+      ...VIDEO_PLAZA,
+      { id: 104, name: 'by-name', platform: 'openai', rate_multiplier: 1, models: [{ name: 'Seedance-2.0', platform: 'openai', pricing: null }] },
+    ];
+    const options = filterKeysForPurpose(videoKeys, 'video', NOW, plaza);
+    expect(options.map((option) => [option.key.id, option.disabledReason])).toEqual([[3, ''], [4, '已禁用']]);
+    expect(filterKeysForPurpose(videoKeys, 'video', NOW)).toEqual([]);
+    expect(filterGroupsForPurpose(videoKeys.map((key) => key.group!).filter(Boolean), 'video', plaza).map((group) => group.id)).toEqual([103, 104]);
+    expect(studioKeyName(videoKeys[0].group, '视频', 'video')).toBe('创作工作台-视频');
+    expect(studioKeyName({ ...videoKeys[0].group!, allow_image_generation: true }, '视频', 'video')).toBe('创作工作台-视频');
   });
 
   it('一键创建的分组同样按用途过滤', () => {

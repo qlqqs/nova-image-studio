@@ -1,0 +1,7 @@
+{
+  "status": "succeeded",
+  "content": {
+    "video_url": "https://cdn.test/video.mp4"
+  },
+  "duration": 5
+}

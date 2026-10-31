@@ -120,7 +120,7 @@ export function EmbedSettingsModal({ isOpen, onClose, onApiKeyChange, initialTab
             <Settings className="w-5 h-5 text-muted-foreground" />
             <DialogTitle>设置</DialogTitle>
           </div>
-          <DialogDescription>选择生图与对话使用的 API 密钥和模型。密钥明文只在本页面内存中使用，不会保存在浏览器里。</DialogDescription>
+          <DialogDescription>选择生图、对话与视频使用的 API 密钥和模型。密钥明文只在本页面内存中使用，不会保存在浏览器里。</DialogDescription>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={(value) => setTab(value as EmbedSettingsTab)} className="min-h-0 flex-1 gap-0">

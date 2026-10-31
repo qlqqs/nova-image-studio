@@ -56,7 +56,7 @@ import { hasEmbedImageSelection } from '@/lib/embed/registry-store';
 import { consumeAutoOpenSettings } from '@/lib/embed/shell-refresh';
 
 export function WorkspaceShell() {
-  // 嵌入模式（sub2api 创作工作台）：无品牌栏、无主题切换 / 随机图片 / 视频工作台，余额显示在工具栏右侧
+  // 嵌入模式（sub2api 创作工作台）：无品牌栏、无主题切换 / 随机图片，视频工作台只用内置 Seedance 插件
   const embedded = isEmbedMode();
   const queueStatus = useQueueStatus();
   const { wideMode, toggleWideMode } = useWideMode();
@@ -312,7 +312,7 @@ export function WorkspaceShell() {
                 </button>
               )}
               <div className={cn(wideMode ? 'flex flex-col py-4 flex-1' : 'flex flex-col py-1')}>
-                <WorkspaceModeTabs wideMode={wideMode} showPromptGallery={promptGallery.showPromptGallery} hideVideo={embedded} />
+                <WorkspaceModeTabs wideMode={wideMode} showPromptGallery={promptGallery.showPromptGallery} />
               </div>
 
               {wideMode && (
@@ -457,12 +457,12 @@ export function WorkspaceShell() {
                 )}
               </TabsContent>
 
-              {!embedded && <TabsContent value="video-generation" keepMounted className={cn(wideMode ? 'space-y-6 xl:flex xl:min-h-0 xl:space-y-0' : 'space-y-3')}>
+              <TabsContent value="video-generation" keepMounted className={cn(wideMode ? 'space-y-6 xl:flex xl:min-h-0 xl:space-y-0' : 'space-y-3')}>
                 <div className={cn(wideMode ? 'grid items-start gap-5 xl:h-full xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(460px,0.95fr)_minmax(0,1.35fr)] xl:items-stretch' : 'space-y-3')}>
                   <div className={cn(wideMode && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>
                     <PluginWorkbench
                       wideMode={wideMode}
-                      onConfigureCredential={() => openSettings('plugins')}
+                      onConfigureCredential={() => openSettings(embedded ? 'models' : 'plugins')}
                       showToast={showToast}
                       initialJob={videoInitialJob}
                     />
@@ -477,7 +477,7 @@ export function WorkspaceShell() {
                     }}
                   />
                 </div>
-              </TabsContent>}
+              </TabsContent>
 
               <TabsContent value="canvas" keepMounted className={cn('min-h-0', wideMode ? 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col' : 'space-y-6')}>
                 <CanvasWorkspace

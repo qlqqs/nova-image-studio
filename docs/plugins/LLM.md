@@ -7,9 +7,8 @@
 
 ## 你的任务
 
-为 Nova Studio 开源版编写一个**视频生成插件**。插件是一个目录，包含 3 个 JSON 文件，
-**没有任何可执行代码**。宿主（Nova Studio）读这 3 个文件，据此渲染表单、发上游请求、
-轮询状态、归一化产物。
+为 Nova Studio 开源版编写一个**视频生成插件**。插件是一个目录，使用声明式 JSON 或可信 Node 脚本驱动。
+宿主据此渲染表单、发上游请求、轮询状态、下载并归一化产物。
 
 产出物：
 
@@ -17,7 +16,7 @@
 backend/plugins/<plugin-id>/
   manifest.json     身份、模型清单、申报价、凭据、出网白名单、素材配额
   ui.schema.json    表单描述（宿主渲染，插件不写前端代码）
-  provider.json     上游请求模板 + 轮询规则 + 结果取值路径
+  provider.json     声明式请求模板；脚本式改为 index.js
   README.md         可选
   fixtures/         可选但强烈建议：离线契约用例
 ```
@@ -47,8 +46,8 @@ backend/plugins/<plugin-id>/
 ## 三条不可违反的规则
 
 **1. 出网必须申报。** `manifest.permissions.hosts` 里没写的主机会被宿主拒绝。
-私有网段与环回地址永远被拒。这张表只管**插件自己发起的请求**（`submit.url` / `poll.url`
-解析出的主机），产物地址由浏览器直接加载，不必写进来。
+独立模式拒绝私有与环回地址；嵌入模式只允许配置的网关 origin。这张表只管**插件自己发起的请求**（`submit.url` / `poll.url`
+解析出的主机），产物地址由宿主受控下载，不必写进 API 主机表。
 
 **2. 凭据不由你管。** 用户在设置里填 apiKey 与 baseUrl，你只在模板里写
 `{{apiKey}}` / `{{baseUrl}}`。不要在 JSON 里写任何真实密钥，fixtures 里也不行。
@@ -67,7 +66,7 @@ backend/plugins/<plugin-id>/
   "name": "Example 视频",              // 必需
   "version": "1.0.0",                 // 必需，严格语义化版本（x.y.z）
   "kind": "video",                    // 必需，只能是 "video"
-  "mode": "declarative",              // 可选，只能是 "declarative"
+  "mode": "declarative",              // 可选，"declarative" 或 "script"
   "description": "一句话说明",          // 可选
   "author": "",                       // 可选
   "homepage": "https://...",          // 可选
@@ -430,12 +429,8 @@ cd backend && npm run plugins:verify <plugin-id>
 
 ## 完整参考实现
 
-`backend/plugins/ccode-h3/` 是随仓库分发的示例，覆盖了协议几乎所有特性：
-2 个 facet × 8 个模型、4 种字段类型、5 个素材槽、`showIf` / `requiredIf` /
-`availableWhen` / `maxCount.byFacet`、`string` / `concat` / 两处 `$switch`、
-`fallbackUrl`、16 个状态词、7 个 fixtures（它有意不使用 `rewriteHosts`）。
-
-**写新插件时先完整读一遍它。** 遇到不确定的写法，那里大概率已经有答案。
+`backend/plugins/qx-seedance/` 为当前内置参考：Seedance 2.0 / 2.5、六种生成模式、
+两种素材来源、九个 fixtures（含 4k、自动时长及素材上限）。它使用可信 Node 脚本驱动，接口见 provider.md。
 
 ---
 
@@ -486,7 +481,7 @@ cd backend && npm run plugins:verify <plugin-id>
 轮询调度与超时判死、素材上传与落盘与 TTL 清理、上传进度与重试、历史记录、
 预览与下载、链接失效探测、限流、表单渲染、价格显示、凭据存储。
 
-插件拿不到：数据库、文件系统、`fetch`、`process`、任何 Node 模块。
-v1 不支持自定义 HTML/JS、不支持沙箱脚本、不支持外部进程、不支持回调端点。
+声明式包仅含数据；脚本驱动 index.js 由 Node 加载，只安装可信代码。
+不支持自定义前端 HTML/JS、外部进程协议或回调端点。
 如果需求真的超出声明式协议的表达力，正确做法是向仓库提 issue 说明具体卡在哪里，
 而不是把模板语言撑成半个编程语言。

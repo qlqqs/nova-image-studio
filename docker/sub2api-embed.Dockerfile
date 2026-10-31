@@ -31,12 +31,15 @@ ENV NODE_ENV=production \
     NOVA_EMBED_MODE=1 \
     NOVA_CDP_ENABLED=false \
     NOVA_TASK_DB=/data/nova-tasks.sqlite \
-    NOVA_IMAGE_DIR=/data/images
+    NOVA_IMAGE_DIR=/data/images \
+    NOVA_VIDEO_DIR=/data/videos \
+    NOVA_VIDEO_RETENTION_DAYS=3
 
 COPY --chown=node:node backend/ ./backend/
 COPY --from=backend-deps --chown=node:node /app/backend/node_modules/ ./backend/node_modules/
 COPY --from=frontend-builder --chown=node:node /app/frontend/out/ ./frontend/out/
-RUN rm -rf backend/test && mkdir -p /data && chown node:node /data
+RUN test -f backend/plugins/qx-seedance/index.js \
+  && rm -rf backend/test && mkdir -p /data && chown node:node /data
 
 USER node
 EXPOSE 3000

@@ -50,7 +50,7 @@ backend/plugins/example-video/
 ```
 
 `permissions.hosts` 只需要**插件自己会去请求的主机**（创建与查询用的 API 域名）。
-产物地址由浏览器直接加载，不必写进来。
+产物地址由宿主受控下载，不必写进 API 主机白名单。
 
 ## 3. ui.schema.json
 

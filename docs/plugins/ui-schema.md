@@ -126,14 +126,15 @@
 | `hideWhenSingle` | select 类 | 只剩一个可选项时不显示。 |
 | `default` | 非 media | 缺省值。select 类不写则取第一个可用选项。 |
 
-### 条件：showIf / requiredIf / availableWhen
+### 条件：showIf / requiredIf / availableWhen / unavailableWhen
 
-三者同一套语法：
+四者同一套语法：
 
 ```json
 "showIf": { "mode": ["first-last-frame"] }
 "requiredIf": { "resolution": ["2K", "4K"] }
 "availableWhen": { "tier": ["standard", "comic"] }
+"unavailableWhen": { "targetModel": ["seedance-2.5"], "mode": ["i2v", "firstlast"] }
 ```
 
 **键之间是「且」，键内的数组是「或」。** 比较按字符串进行，所以 `[4]` 能命中 `"4"`。
@@ -151,6 +152,7 @@
 | `options[].label` | |
 | `options[].description` | `select` 会显示，`select-grid` 作为 tooltip。 |
 | `options[].availableWhen` | 该选项在什么组合下才可选。不可选时置灰并给出说明。 |
+| `options[].unavailableWhen` | 条件命中时该选项不可选，语法同 `availableWhen`。两者同时存在时，须满足 `availableWhen` 且不命中 `unavailableWhen`。 |
 | `columns` | 仅 `select-grid`，方格列数，缺省 3。 |
 | `suffix` | 工具栏按钮上追加的单位，如 `"秒"`。展开的方格里只显示 `label`，所以 `label` 应当只写数值（`"5"` 而不是 `"5s"`），否则按钮上会出现「5s秒」这样的两个单位。 |
 
@@ -175,6 +177,8 @@
 | --- | --- | --- |
 | `kind` | ✅ | `images` / `videos` / `audios` |
 | `maxCount` | ✅ | 整数，或按 facet 取值的映射（见下）。 |
+| `maxTotalSeconds` | | 视频槽的总时长上限（秒）；整数或 `{ byFacet, values, default }`，写法与 `maxCount` 相同。前端校验可读取时长的素材，公网链接无法读取时交由上游校验。 |
+| `allowRemoteUrl` | | 为 `true` 时允许上传素材与 HTTPS 链接混合输入；缺省仅支持上传。 |
 | `style` | | `thumbnail`（方形缩略图，缺省）/ `frame`（宽画幅，首尾帧用）/ `chip`（文件名胶囊，视频音频用） |
 | `hint` | | 区域下方的说明文字。 |
 | `requiredHint` | | 该字段变必填时替换 `hint`，用来解释「为什么现在必填」。 |
@@ -191,12 +195,13 @@
 **`maxCount` 为 0 的素材槽直接不显示。** 所以「量化版不支持参考视频」不需要写 `showIf`，
 把 `values` 里那个档位留空即可。
 
-素材上传后宿主给你的是**本机公网 URL 的有序数组**，在模板里通过 `media.<key>` 取。
-外部 URL 一律不被接受——素材必须经过宿主，否则任务删除时无从清理。
+素材以 `media.<key>: string[]` 提交，保留顺序；上传地址和允许的 HTTPS 外链可以混合。
+上传返回的 `url` 用于提交，`previewUrl` 用于会话预览，不能把预览地址提交为素材。
+宿主提交上游前将上传地址转换为 24 小时签名 public-media 链接；HTTPS 外链原样透传，不下载、不参与本机清理。
 
 ### switch
 
-布尔开关。提交时始终出现（`true` / `false`），不会因为是 `false` 就被丢弃。
+布尔开关。写进 `layout.toolbar` 时渲染为开关按钮。提交时始终出现（`true` / `false`），不会因为是 `false` 就被丢弃。
 
 ---
 
@@ -209,5 +214,14 @@
 
 ## 一个完整例子
 
-见 `backend/plugins/ccode-h3/ui.schema.json`：两个 facet、四种字段类型、
-五个素材槽、`showIf` / `requiredIf` / `availableWhen` / `maxCount.byFacet` 全都用到了。
+见 `backend/plugins/qx-seedance/ui.schema.json`：模型与 mode 两个 facet、六种模式、
+六个素材槽、条件必填、时长选项及 `maxCount.byFacet` / `maxTotalSeconds`。
+2.5 首帧/首尾帧只支持 adaptive：其余六个 ratio 选项通过 `unavailableWhen` 禁用，
+前后端共用同一条件语义；插件驱动保留该限制的权威校验。
+
+### Seedance 当前规格
+
+`qx-seedance` 的 `resolution` 以 `availableWhen` 限制 4k 仅用于 seedance-2.0；
+seedance-2.5 支持 480p / 720p / 1080p。参考图的 `maxCount.byFacet` 为 9 / 30，
+参考音频为 3 / 10（依次为 2.0 / 2.5）。两个模型均提供 duration=-1 自动时长；
+默认值均为 720p、5 秒、adaptive。familyDescription 保持「按秒计费」。

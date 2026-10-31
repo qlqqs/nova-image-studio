@@ -220,11 +220,17 @@ function validateUiSchema(schema, manifest, errors) {
           if (option.availableWhen !== undefined) {
             validateCondition(option.availableWhen, `${optionAt}.availableWhen`, errors);
           }
+          if (option.unavailableWhen !== undefined) {
+            validateCondition(option.unavailableWhen, `${optionAt}.unavailableWhen`, errors);
+          }
         });
       }
     }
 
     if (field.type === 'media') {
+      if (field.allowRemoteUrl !== undefined && typeof field.allowRemoteUrl !== 'boolean') {
+        errors.add(`${at}.allowRemoteUrl 必须是布尔值`);
+      }
       if (!MEDIA_KINDS.includes(field.kind)) {
         errors.add(`${at}.kind 必须是 ${MEDIA_KINDS.join(' / ')} 之一`);
       }

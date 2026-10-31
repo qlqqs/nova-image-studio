@@ -175,7 +175,7 @@
 | `url` | ✅ | |
 | `timeoutMs` | | 单次查询超时，缺省 15 秒。 |
 | `intervalMs` | | 轮询间隔，夹取到 2 秒–5 分钟。10–30 秒是常见区间。 |
-| `maxTotalMs` | | 总时长上限，超过判失败。夹取到 1 分钟–6 小时。 |
+| `maxTotalMs` | | 总时长上限，超过判失败。夹取到 1 分钟–12 小时。 |
 | `status` | ✅ | 见下。 |
 | `progress` | | 不写就没有百分比，界面显示已用时间。 |
 | `result` | ✅ | 见下。 |
@@ -265,11 +265,26 @@
 
 `rewriteHosts` 的用途是上游返回内部/回源域名、浏览器访问不到，需要换成对外 CDN。
 **只在确有必要时才用**——替上游改产物域名是个有主观判断的决定，默认应该原样透传。
-随仓库分发的 `ccode-h3` 就刻意不使用它。
+随仓库分发的 `qx-seedance` 就刻意不使用它。
 
 ---
 
-## 完整示例
+## 脚本驱动
 
-`backend/plugins/ccode-h3/provider.json`。它用到了 `string`、`concat`、两处 `$switch`、
-`fallbackUrl`，以及一份 16 个词的状态表；`rewriteHosts` 有意没用（产物地址原样透传）。
+复杂 content 数组可用 `manifest.mode = "script"` 与 `index.js`，参考
+`backend/plugins/qx-seedance/index.js`。脚本由 Node 加载，仅安装可信插件。
+宿主负责 HTTP、网关边界、XFF、重定向策略、超时、结果下载与存储；驱动只做转换。
+
+导出函数：
+
+- `buildSubmit(ctx)` → `{ method, url, headers, body }`。
+- `parseSubmitResponse(payload, ctx)`（可选）→ 任务 ID 字符串或 `{ taskId }`；缺省取响应 `id` 等常见字段。
+- `buildQuery(taskId, ctx)` → `{ method, url, headers }`。
+- `parseTaskResult(payload, ctx)` → `{ state, progress?, assets?, error? }`。
+- `validateInput({ model, facets, fields, media, mediaUrls })`（可选）：跨槽约束，抛 `InputError` 返回 400。
+
+`ctx.facet` 是校验后的 facets，其他属性与上文模板上下文一致。
+完成结果必须含可下载的 assets；qx-seedance 从 `content.video_url` 取视频，
+将 queued/running 映射为 processing，succeeded 为 completed，failed/cancelled/expired 为 failed。
+
+脚本驱动读取 `manifest.runtime`，qx-seedance 每 10 秒轮询一次，上限 12 小时。

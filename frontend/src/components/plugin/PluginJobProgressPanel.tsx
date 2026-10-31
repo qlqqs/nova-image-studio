@@ -10,6 +10,7 @@ import {
   type UploadItemProgress,
 } from '@/lib/plugin-upload-runner';
 import type { PluginJob } from '@/lib/plugin-job-store';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 /** 上传在总进度里占的比重。剩下的给生成——生成通常远比上传久。 */
 const UPLOAD_WEIGHT = 0.4;
@@ -134,6 +135,13 @@ export function PluginJobProgressPanel({ job }: PluginJobProgressPanelProps) {
       <div className="mt-2">
         <ProgressBar percent={totalPercent ?? 0} indeterminate={totalPercent === null} />
       </div>
+
+      {/* 任务已交给服务端，由后端轮询到终态；上传阶段离开页面会中断上传 */}
+      {isEmbedMode() && !isUploading && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          视频生成通常需要几分钟到几十分钟，可以离开页面，稍后回来查看结果。
+        </p>
+      )}
 
       {expanded && items.length > 0 && (
         <div className="mt-3 space-y-2">

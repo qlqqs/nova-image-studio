@@ -4,7 +4,7 @@
  * 插件包自检 CLI。
  *
  *   node plugin-runtime/verify.js            校验全部已安装插件
- *   node plugin-runtime/verify.js ccode-h3   只校验一个
+ *   node plugin-runtime/verify.js qx-seedance   只校验一个
  *
  * 除了跑结构校验，还会执行插件目录下 fixtures/ 里的「契约用例」：
  * 给定一份表单值，断言拼出来的上游请求体；给定一份上游响应，断言归一化后的结果。

@@ -1,0 +1,299 @@
+{
+  "model": "seedance-2.5",
+  "method": "POST",
+  "url": "https://upstream.test/api/v3/contents/generations/tasks",
+  "body": {
+    "content": [
+      {
+        "type": "text",
+        "text": "一只猫"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-1.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-2.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-3.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-4.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-5.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-6.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-7.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-8.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-9.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-10.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-11.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-12.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-13.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-14.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-15.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-16.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-17.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-18.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-19.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-20.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-21.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-22.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-23.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-24.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-25.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-26.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-27.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-28.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-29.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "https://media.test/image-30.png"
+        },
+        "role": "reference_image"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-1.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-2.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-3.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-4.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-5.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-6.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-7.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-8.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-9.mp3"
+        },
+        "role": "reference_audio"
+      },
+      {
+        "type": "audio_url",
+        "audio_url": {
+          "url": "https://media.test/audio-10.mp3"
+        },
+        "role": "reference_audio"
+      }
+    ],
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "duration": 5,
+    "generate_audio": true,
+    "watermark": false,
+    "model": "seedance-2.5"
+  }
+}

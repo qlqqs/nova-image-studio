@@ -20,6 +20,7 @@ function createEmbedSecurity(env = process.env, now = Date.now) {
     || gateway.search || gateway.hash || gateway.pathname !== '/') {
     throw new Error('SUB2API_GATEWAY_URL must be an HTTP(S) origin without credentials or a path');
   }
+  if (!env.NOVA_PUBLIC_BASE_URL) throw new Error('Embedded mode requires NOVA_PUBLIC_BASE_URL');
   const retentionDays = Number(env.NOVA_RETENTION_DAYS ?? 7);
   if (!Number.isSafeInteger(retentionDays) || retentionDays < 1 || retentionDays > 36500) {
     throw new Error('NOVA_RETENTION_DAYS must be a positive integer (at most 36500)');

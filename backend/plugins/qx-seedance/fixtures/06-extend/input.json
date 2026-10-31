@@ -1,0 +1,18 @@
+{
+  "facets": {
+    "targetModel": "seedance-2.5",
+    "mode": "extend"
+  },
+  "fields": {
+    "prompt": "一只猫",
+    "resolution": "720p",
+    "ratio": "adaptive",
+    "duration": 5,
+    "generate_audio": true
+  },
+  "media": {
+    "sourceVideo": [
+      "https://host.test/api/nova/plugin-media/source.mp4"
+    ]
+  }
+}

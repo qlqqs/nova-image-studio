@@ -128,7 +128,7 @@ Video generation contains no upstream-specific protocol. The host provides the t
 - **Egress must be declared**: any host outside `permissions.hosts`, plus every private/loopback address, is refused
 - **Credentials belong to the user**: apiKey / baseUrl are entered under Settings → Plugins, stored in the browser, never in the database
 - **The settings page is read-only**: it lists what is installed and why a pack failed to load; installing and removing plugins requires server access
-- **Reference implementation**: `backend/plugins/ccode-h3/` (MiniMax H3 — 8 models, first/last frame, reference image/video/audio, upscaled tiers)
+- **Reference implementation**: `backend/plugins/qx-seedance/` (Seedance 2.0 / 2.5 — six modes, image/video/audio references)
 - **Result URLs pass through untouched**: no domain rewriting, the video link is exactly what the upstream returned
 
 📦 **Official plugin collection: [nova-studio-plugins](https://github.com/tianjiangqiji/nova-studio-plugins)**
@@ -230,7 +230,7 @@ nova-image-studio/
 │   ├── taobao-extract.js     # Taobao/Tmall product-page extractor
 │   ├── plugin-runtime/       # video plugin runtime: registry, validation, templates, executor, media, verify CLI
 │   ├── plugins/              # installed video plugins (placed by an admin)
-│   │   └── ccode-h3/         # reference implementation: MiniMax H3
+│   │   └── qx-seedance/         # reference implementation: Seedance
 │   ├── prompts.json          # prompt gallery content
 │   ├── blacklist.json        # blocked words
 │   ├── .env.example
@@ -314,7 +314,7 @@ mkdir -p data
 mkdir -p plugins
 # copy the built-in plugin to the host (the mount shadows the in-image plugins dir;
 # skip this and the built-in plugin disappears)
-cp -r backend/plugins/ccode-h3 plugins/
+cp -r backend/plugins/qx-seedance plugins/
 
 # 4. start
 docker compose up -d

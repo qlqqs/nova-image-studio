@@ -28,6 +28,8 @@ export interface RowSelection {
 export interface StudioPrefs {
   image?: RowSelection;
   text?: RowSelection;
+  /** 视频（qx-seedance 插件）的 Key 与默认模型；只存本地，不同步到 sub2api 工作台偏好 */
+  video?: RowSelection;
 }
 
 export const STUDIO_PREFS_KEY = 'studio-prefs';
@@ -46,10 +48,10 @@ export function parseStudioPrefs(raw: string | null | undefined): StudioPrefs {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const prefs: StudioPrefs = {};
-    const image = parseRow(parsed?.image);
-    const text = parseRow(parsed?.text);
-    if (image) prefs.image = image;
-    if (text) prefs.text = text;
+    for (const purpose of ['image', 'text', 'video'] as const) {
+      const row = parseRow(parsed?.[purpose]);
+      if (row) prefs[purpose] = row;
+    }
     return prefs;
   } catch {
     return {};
@@ -69,8 +71,10 @@ export function loadStudioPrefs(): StudioPrefs {
 export function saveStudioPrefs(prefs: StudioPrefs): void {
   if (typeof localStorage === 'undefined') return;
   const clean: StudioPrefs = {};
-  if (prefs.image) clean.image = { keyId: prefs.image.keyId, model: prefs.image.model };
-  if (prefs.text) clean.text = { keyId: prefs.text.keyId, model: prefs.text.model };
+  for (const purpose of ['image', 'text', 'video'] as const) {
+    const row = prefs[purpose];
+    if (row) clean[purpose] = { keyId: row.keyId, model: row.model };
+  }
   try {
     localStorage.setItem(storageKey(STUDIO_PREFS_KEY), JSON.stringify(clean));
   } catch {

@@ -116,13 +116,9 @@
 
 ## 结果期错误：拿到了但打不开
 
-上游的产物直链通常只保留数小时，且响应里没有过期时间字段。宿主的做法是
-**在用户真正要看/要下载时探一次**，探测失败就问要不要删记录（不自动删——
-用户可能还想复制提示词或重用参数）。
-
-探测用 `<video>` 元素而不是 `fetch`：上游 CDN 基本不带 CORS 头，`fetch` 会抛
-TypeError，分不清「链接死了」和「跨域被拦」，那样会把好端端的视频误判成过期。
-超时也不判死（慢网络下拿不到 metadata 很常见）。
+宿主已把上游视频下载到本地。前端通过带会话的 fetch 读取 plugin-results，再用 blob 播放和下载。
+过期任务及他人任务返回 404；视频默认从终态起保留 3 天。上游生成成功但本地下载失败时，
+错误会明确说明已经计费并附上上游任务 ID，供管理员核对。
 
 ---
 
@@ -138,15 +134,15 @@ const { resolveTemplate } = require('./plugin-runtime/template');
 const { validateAndNormalizeInput } = require('./plugin-runtime/input');
 const { buildContext } = require('./plugin-runtime/executor');
 
-const p = r.getPlugin('ccode-h3');
+const p = r.getPlugin('qx-seedance');
 const input = {
-  facets: { tier: 'standard', resolution: '2K' },
-  fields: { mode: 'multi-reference', aspectRatio: '9:16', seconds: 8, prompt: '一只猫' },
-  media: { multiImage: ['https://h.test/api/nova/plugin-media/a.png'] },
+  facets: { targetModel: 'seedance-2.5', mode: 'i2v' },
+  fields: { prompt: '一只猫' },
+  media: { firstFrame: ['https://h.test/api/nova/plugin-media/a.png'] },
 };
 const n = validateAndNormalizeInput(p, input);
 const ctx = buildContext({ plugin: p, baseUrl: 'https://x.test', apiKey: 'sk-REDACTED', ...n });
-console.log(JSON.stringify(resolveTemplate(p.provider.submit.body, ctx), null, 2));
+console.log(JSON.stringify(p.driver ? p.driver.buildSubmit(ctx).body : resolveTemplate(p.provider.submit.body, ctx), null, 2));
 "
 ```
 

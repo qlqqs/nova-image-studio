@@ -21,9 +21,14 @@ export interface PendingMedia {
   /** 所属素材字段的 key（ui.schema 里的 field.key） */
   slot: string;
   kind: MediaKind;
-  file: File;
-  /** URL.createObjectURL 生成的本地预览地址，由持有方负责 revoke */
+  /** 本地文件；填写公网链接时为 null */
+  file: File | null;
+  /** 公网链接（allowRemoteUrl 的素材槽）：不上传，原样提交 */
+  remoteUrl?: string;
+  /** URL.createObjectURL 生成的本地预览地址，由持有方负责 revoke；公网链接为空串 */
   previewUrl: string;
+  /** 本地视频 / 音频的时长（秒），读不到时缺省 */
+  durationSec?: number;
 }
 
 export type UploadItemStatus = 'pending' | 'uploading' | 'done' | 'failed';
@@ -112,7 +117,8 @@ async function run(jobId: string): Promise<void> {
   try {
     for (const item of entry.items) {
       const progress = entry.progress.find(p => p.id === item.id);
-      if (!progress || progress.status === 'done') continue; // 重试时跳过已成功项，不重复落盘
+      // 公网链接没有进度项；重试时跳过已成功项，不重复落盘
+      if (!item.file || !progress || progress.status === 'done') continue;
 
       progress.status = 'uploading';
       progress.loaded = 0;
@@ -137,7 +143,7 @@ async function run(jobId: string): Promise<void> {
         emit(jobId);
         updatePluginJob(jobId, {
           status: 'failed',
-          error: `素材「${item.file.name}」上传失败：${message}`,
+          error: `素材「${progress.name}」上传失败：${message}`,
           completedAt: new Date().toISOString(),
         });
         return;
@@ -146,10 +152,10 @@ async function run(jobId: string): Promise<void> {
 
     const urls: UrlsBySlot = {};
     for (const item of entry.items) {
-      const progress = entry.progress.find(p => p.id === item.id);
-      if (!progress?.url) continue;
+      const url = item.remoteUrl ?? entry.progress.find(p => p.id === item.id)?.url;
+      if (!url) continue;
       if (!urls[item.slot]) urls[item.slot] = [];
-      urls[item.slot].push(progress.url);
+      urls[item.slot].push(url);
     }
 
     updatePluginJob(jobId, { uploadCompletedAt: new Date().toISOString() });
@@ -215,14 +221,15 @@ export interface StartJobInput {
 /** 落一条 uploading 记录并立刻开跑。 */
 export function startPluginJob({ job, items, buildPayload, parallelCount = 1 }: StartJobInput): void {
   const now = new Date().toISOString();
-  const progress: UploadItemProgress[] = items.map(item => ({
+  // 公网链接不需要上传，不进进度列表，拼载荷时原样带上
+  const progress: UploadItemProgress[] = items.flatMap(item => (item.file ? [{
     id: item.id,
     name: item.file.name,
     kind: item.kind,
     bytes: item.file.size,
     loaded: 0,
-    status: 'pending',
-  }));
+    status: 'pending' as const,
+  }] : []));
   entries.set(job.id, {
     items,
     pluginId: job.pluginId,

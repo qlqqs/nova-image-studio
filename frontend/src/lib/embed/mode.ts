@@ -20,3 +20,6 @@ export function setEmbedModeForTests(value: boolean | null): void {
 
 /** AGPL-3.0 源码地址（设置页底部「源码」链接）。 */
 export const NOVA_SOURCE_URL = 'https://github.com/qlqqs/nova-image-studio';
+
+/** 嵌入模式视频工作台只使用这个内置插件（经 sub2api 网关调用 Seedance）。 */
+export const EMBED_VIDEO_PLUGIN_ID = 'qx-seedance';

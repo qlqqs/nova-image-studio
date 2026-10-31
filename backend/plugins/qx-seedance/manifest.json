@@ -1,0 +1,58 @@
+{
+  "apiVersion": 1,
+  "id": "qx-seedance",
+  "name": "Seedance 视频",
+  "version": "1.0.0",
+  "kind": "video",
+  "mode": "script",
+  "outputs": [
+    "video"
+  ],
+  "description": "Seedance 2.0 / 2.5 · 六种视频生成方式",
+  "credential": {
+    "source": "client",
+    "label": "视频 API Key",
+    "defaultBaseUrl": "https://www.qlqqx.com"
+  },
+  "permissions": {
+    "hosts": [
+      "www.qlqqx.com"
+    ]
+  },
+  "media": {
+    "images": {
+      "maxCount": 30
+    },
+    "videos": {
+      "maxCount": 10
+    },
+    "audios": {
+      "maxCount": 10
+    }
+  },
+  "runtime": {
+    "submitTimeoutMs": 90000,
+    "pollIntervalMs": 10000,
+    "maxPollMs": 43200000
+  },
+  "models": [
+    {
+      "id": "seedance-2.0",
+      "name": "Seedance 2.0",
+      "price": {
+        "unit": "per-second",
+        "amount": 0.75,
+        "currency": "CNY"
+      }
+    },
+    {
+      "id": "seedance-2.5",
+      "name": "Seedance 2.5",
+      "price": {
+        "unit": "per-second",
+        "amount": 1.125,
+        "currency": "CNY"
+      }
+    }
+  ]
+}

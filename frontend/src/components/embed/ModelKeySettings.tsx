@@ -34,7 +34,7 @@ import { localizeGatewayErrorText } from '@/lib/embed/gateway-errors';
 import { postToParent } from '@/lib/embed/session';
 import { useStudioKeys, useStudioPrefs } from '@/components/embed/hooks';
 
-type RowPurpose = Extract<StudioPurpose, 'image' | 'text'>;
+type RowPurpose = StudioPurpose;
 
 interface ModelListState {
   status: 'loading' | 'ok' | 'error';
@@ -42,10 +42,11 @@ interface ModelListState {
   error?: string;
 }
 
-const ROW_LABEL: Record<RowPurpose, string> = { image: '生图', text: '对话' };
+const ROW_LABEL: Record<RowPurpose, string> = { image: '生图', text: '对话', video: '视频' };
 const ROW_HINT: Record<RowPurpose, string> = {
   image: '文生图、图生图、画布、动图、UI 设计模式的图片编辑',
   text: 'Agent、反推提示词、提示词优化、AI 拆图与网页复刻',
+  video: '视频工作台（Seedance），模型可在工作台里切换',
 };
 const NONE = '__none__';
 // 触发器里的文字靠左、单行，过长截断（Select 默认继承按钮的居中并换行）
@@ -124,7 +125,7 @@ export function ModelKeySettings() {
 
   // 已选中的 Key 自动加载模型列表；之前保存的模型已被隐藏时换成默认模型
   useEffect(() => {
-    for (const purpose of ['image', 'text'] as const) {
+    for (const purpose of ['image', 'text', 'video'] as const) {
       const row = prefs[purpose];
       const key = row ? keys.find((item) => item.id === row.keyId) : undefined;
       if (!row || !key || keyUnavailableReason(key)) continue;
@@ -162,9 +163,9 @@ export function ModelKeySettings() {
       const keep = current[purpose]?.model;
       const model = keep && candidates.includes(keep) ? keep : pickDefaultModel(candidates, purpose) as string;
       const next: StudioPrefs = { ...current, [purpose]: { keyId: key.id, model } };
-      // 另一行还没选、且这把 Key 也适用时一并选上（同一把 Key 可用于多行）
-      const other: RowPurpose = purpose === 'image' ? 'text' : 'image';
-      if (!next[other] && groupPurposeSupport(key.group, other) === '') {
+      // 生图与对话中另一行还没选、且这把 Key 也适用时一并选上（同一把 Key 可用于多行）
+      const other: RowPurpose | null = purpose === 'image' ? 'text' : purpose === 'text' ? 'image' : null;
+      if (other && !next[other] && groupPurposeSupport(key.group, other) === '') {
         const otherCandidates = modelsForPurpose(models, other, plaza, key);
         if (otherCandidates.length > 0) next[other] = { keyId: key.id, model: pickDefaultModel(otherCandidates, other) as string };
       }
@@ -192,7 +193,7 @@ export function ModelKeySettings() {
     setError(null);
     try {
       const group = groups?.find((item) => item.id === groupId);
-      const name = studioKeyName(group, ROW_LABEL[purpose]);
+      const name = studioKeyName(group, ROW_LABEL[purpose], purpose);
       const reusable = getStudioKeys().find((key) => key.name === name && key.group_id === groupId && !keyUnavailableReason(key));
       const keyId = reusable ? reusable.id : (await createKey({ name, groupId })).id;
       if (!reusable) await refreshStudioKeys();
@@ -249,7 +250,7 @@ export function ModelKeySettings() {
       )}
 
       <div className="divide-y divide-border rounded-lg border border-border">
-        {(['image', 'text'] as const).map((purpose) => (
+        {(['image', 'text', 'video'] as const).map((purpose) => (
           <PurposeRow
             key={purpose}
             purpose={purpose}
@@ -260,19 +261,12 @@ export function ModelKeySettings() {
             modelLists={modelLists}
             busy={busyRow === purpose}
             loadingKeys={loadingKeys}
-            hideCreate={noUsableKey}
+            hideCreate={noUsableKey && purpose !== 'video'}
             onSelectKey={selectKey}
             onSelectModel={selectModel}
             onCreate={createAndSelect}
           />
         ))}
-        <div className="grid gap-2 p-4 sm:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1fr)] sm:items-center">
-          <div>
-            <p className="text-sm font-medium">视频</p>
-          </div>
-          <Select value={NONE} onValueChange={() => undefined} options={[{ value: NONE, label: '即将上线' }]} disabled ariaLabel="视频密钥" className={TRIGGER_CLASS} />
-          <Select value={NONE} onValueChange={() => undefined} options={[{ value: NONE, label: '即将上线' }]} disabled ariaLabel="视频模型" className={TRIGGER_CLASS} />
-        </div>
       </div>
     </div>
   );
@@ -294,11 +288,11 @@ interface PurposeRowProps {
 }
 
 function PurposeRow({ purpose, keys, prefs, plaza, groups, modelLists, busy, loadingKeys, onSelectKey, onSelectModel, onCreate, hideCreate }: PurposeRowProps) {
-  const options = useMemo(() => filterKeysForPurpose(keys, purpose), [keys, purpose]);
+  const options = useMemo(() => filterKeysForPurpose(keys, purpose, undefined, plaza), [keys, purpose, plaza]);
   const usable = options.filter((option) => !option.disabledReason);
   const selection = prefs[purpose];
   const selectedKey = selection ? keys.find((key) => key.id === selection.keyId) : undefined;
-  const selectedReason = selectedKey ? keyUnavailableReason(selectedKey) || groupPurposeSupport(selectedKey.group, purpose) || '' : '';
+  const selectedReason = selectedKey ? keyUnavailableReason(selectedKey) || groupPurposeSupport(selectedKey.group, purpose, plaza) || '' : '';
   const list = selectedKey ? modelLists[selectedKey.id] : undefined;
   const models = selectedKey && list ? modelsForPurpose(list.models, purpose, plaza, selectedKey) : [];
   const modelOptions: SelectOption<string>[] = models.map((model) => ({ value: model, label: model }));
@@ -322,7 +316,7 @@ function PurposeRow({ purpose, keys, prefs, plaza, groups, modelLists, busy, loa
     return found ? formatModelPrice(found.group, found.model) : '';
   })();
 
-  const groupChoices = useMemo(() => filterGroupsForPurpose(groups || [], purpose), [groups, purpose]);
+  const groupChoices = useMemo(() => filterGroupsForPurpose(groups || [], purpose, plaza), [groups, purpose, plaza]);
   const showCreate = !hideCreate && !loadingKeys && usable.length === 0;
 
   return (

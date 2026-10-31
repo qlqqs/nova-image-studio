@@ -22,6 +22,7 @@ import {
   buildScope,
   findFacetOption,
   findField,
+  isFieldVisible,
   toolbarEntries,
   visibleOptions,
   type FacetValues,
@@ -126,8 +127,25 @@ export function SchemaToolbar({
           );
         }
         const field = findField(schema, entry);
-        if (!field) return null;
-        // 工具栏只放选项类控件。switch / 文本 / 素材即使被写进 layout.toolbar 也跳过，
+        if (!field || !isFieldVisible(field, buildScope(facets, fields))) return null;
+        if (field.type === 'switch') {
+          const on = fields[field.key] === true;
+          return (
+            <button
+              key={entry}
+              type="button"
+              role="switch"
+              aria-checked={on}
+              title={field.hint || field.label || field.key}
+              onClick={() => onFieldChange(field.key, !on)}
+              className={cn(buttonVariants({ variant: 'outline', size }), 'gap-1', !on && 'text-muted-foreground')}
+            >
+              {on ? <Check className="h-3 w-3" /> : <SchemaIcon name={field.icon} className="h-3 w-3" />}
+              <span className="text-[11px]">{field.label || field.key}{on ? '' : '：关'}</span>
+            </button>
+          );
+        }
+        // 工具栏只放选项类控件与开关。文本 / 素材即使被写进 layout.toolbar 也跳过，
         // 否则会渲染出一个空 Popover——它们在正文区有各自的控件。
         if (field.type !== 'select' && field.type !== 'select-grid') return null;
         return (

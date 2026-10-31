@@ -14,7 +14,7 @@
 | `name` | string | ✅ | 界面上显示的名字。 |
 | `version` | string | ✅ | 语义化版本，如 `1.0.0`。历史记录会记下提交时的版本。 |
 | `kind` | `"video"` | ✅ | v1 只支持 `video`。 |
-| `mode` | `"declarative"` | | 缺省即声明式。目前只接受这个值。 |
+| `mode` | `"declarative"` | | `declarative`（缺省）或 `script`。脚本驱动见 provider.md。 |
 | `description` | string | | 一句话说明，显示在设置页与插件切换按钮的 tooltip 上。 |
 | `author` | string | | |
 | `homepage` | string | | 设置页会渲染成「主页」链接。 |
@@ -35,9 +35,9 @@
 ```json
 "credential": {
   "source": "client",
-  "label": "Ccode API Key",
-  "defaultBaseUrl": "https://pro.ccode.vip",
-  "helpUrl": "https://pro.ccode.vip"
+  "label": "视频 API Key",
+  "defaultBaseUrl": "https://www.qlqqx.com",
+  "helpUrl": "https://www.qlqqx.com"
 }
 ```
 
@@ -57,7 +57,7 @@
 
 ```json
 "permissions": {
-  "hosts": ["pro.ccode.vip"]
+  "hosts": ["www.qlqqx.com"]
 }
 ```
 
@@ -70,7 +70,7 @@
 - 主机是环回或私有网段（`localhost`、`127.*`、`10.*`、`172.16-31.*`、`192.168.*`、
   `169.254.*`、`::1`、`0.0.0.0`）→ 拒绝
 
-**产物地址不需要写进来**：视频由用户的浏览器直接加载，不经过服务端，也不经过这张表。
+**产物地址不需要写进来**：宿主用受控下载器下载到本地，再提供鉴权结果地址。嵌入模式下 API 请求只允许配置的网关 origin，不使用 manifest 公网主机白名单。
 需要写进来的是：API 主机、以及你允许用户填进 baseUrl 的其它域名（区域端点、自建代理）。
 
 ---
@@ -111,7 +111,7 @@
 | --- | --- | --- |
 | `submitTimeoutMs` | 90 000 | — |
 | `pollIntervalMs` | 12 000 | 2 000 – 300 000 |
-| `maxPollMs` | 1 800 000 | 60 000 – 21 600 000 |
+| `maxPollMs` | 1 800 000 | 60 000 – 43 200 000 |
 
 `provider.poll` 里的 `intervalMs` / `maxTotalMs` 优先级更高。超过 `maxPollMs` 仍未出终态
 的任务会被判失败并释放并发名额——不这么做，一个卡死的上游任务会永久占住一个名额。

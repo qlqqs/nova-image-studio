@@ -53,6 +53,10 @@ import {
 import { ackPluginTask, getPluginTask, probeMediaUrl } from '@/lib/plugin-task-client';
 import { canRetry, reconcileInterruptedUploads, retryPluginJob } from '@/lib/plugin-upload-runner';
 import { PluginJobProgressPanel, PluginJobTimings } from '@/components/plugin/PluginJobProgressPanel';
+import { AuthedVideo } from '@/components/embed/AuthedVideo';
+import { fetchAuthedVideoBlob } from '@/lib/embed/authed-video';
+import { VIDEO_RETENTION_NOTICE } from '@/lib/embed/copy';
+import { isEmbedMode } from '@/lib/embed/mode';
 
 interface PluginHistoryListProps {
   wideMode?: boolean;
@@ -75,6 +79,8 @@ export function PluginHistoryList({
   showToast,
   onReuseParams,
 }: PluginHistoryListProps) {
+  // 嵌入模式：结果视频由 Nova 保存（需会话鉴权），不探测上游直链、不提供复制链接
+  const embedded = isEmbedMode();
   const jobs = useSyncExternalStore(
     subscribePluginJobs,
     getPluginJobsSnapshot,
@@ -228,6 +234,7 @@ export function PluginHistoryList({
   const ensureUsable = useCallback(async (job: PluginJob): Promise<boolean> => {
     const asset = primaryAsset(job);
     if (!asset?.url) return false;
+    if (embedded) return true;
     setProbingId(job.id);
     try {
       const alive = await probeMediaUrl(asset.url);
@@ -236,7 +243,7 @@ export function PluginHistoryList({
     } finally {
       setProbingId(null);
     }
-  }, []);
+  }, [embedded]);
 
   const handlePreview = useCallback(async (job: PluginJob) => {
     if (await ensureUsable(job)) {
@@ -255,8 +262,26 @@ export function PluginHistoryList({
     if (!asset?.url) return;
     if (!(await ensureUsable(job))) return;
     setDownloadingId(job.id);
+    const filename = `${job.pluginId}_${job.model}_${Date.now()}.mp4`;
+    if (embedded) {
+      try {
+        const blobUrl = URL.createObjectURL(await fetchAuthedVideoBlob(asset.url));
+        const anchor = document.createElement('a');
+        anchor.href = blobUrl;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(blobUrl);
+        showToast?.('开始下载', 'success');
+      } catch (error) {
+        showToast?.(error instanceof Error ? error.message : '下载失败', 'error');
+      } finally {
+        setDownloadingId(null);
+      }
+      return;
+    }
     try {
-      const filename = `${job.pluginId}_${job.model}_${Date.now()}.mp4`;
       const response = await fetch(asset.url, { mode: 'cors' }).catch(() => null);
       if (response && response.ok) {
         const blob = await response.blob();
@@ -285,7 +310,7 @@ export function PluginHistoryList({
     } finally {
       setDownloadingId(null);
     }
-  }, [ensureUsable, showToast]);
+  }, [embedded, ensureUsable, showToast]);
 
   const filteredJobs = useMemo(() => jobs.filter(job => {
     if (filter === 'processing' && !isActivePluginJob(job)) return false;
@@ -326,7 +351,7 @@ export function PluginHistoryList({
                 )}
               </h3>
               <p className="text-xs text-muted-foreground">
-                共 {jobs.length} 条记录 · 生成后请及时下载保存到本地设备
+                共 {jobs.length} 条记录 · {embedded ? VIDEO_RETENTION_NOTICE : '生成后请及时下载保存到本地设备'}
               </p>
             </div>
           </div>
@@ -391,7 +416,7 @@ export function PluginHistoryList({
               </h4>
               <p className="mt-1 max-w-xs text-xs text-muted-foreground">
                 {jobs.length === 0
-                  ? '在左侧选择插件与参数、填写提示词，点击「开始生成」即可创建任务。'
+                  ? `在左侧选择${embedded ? '模型与生成方式' : '插件与参数'}、填写提示词，点击「开始生成」即可创建任务。`
                   : '试试换个关键词或切换筛选条件。'}
               </p>
             </div>
@@ -405,7 +430,7 @@ export function PluginHistoryList({
                   copiedPromptId={copiedPromptId}
                   downloadingId={downloadingId}
                   probingId={probingId}
-                  onCopyLink={url => void handleCopy(url, setCopiedId, job.id, '链接')}
+                  onCopyLink={embedded ? undefined : url => void handleCopy(url, setCopiedId, job.id, '链接')}
                   onCopyPrompt={() => void handleCopy(job.prompt, setCopiedPromptId, job.id, '提示词')}
                   onPreview={() => void handlePreview(job)}
                   onDownload={() => void handleDownload(job)}
@@ -442,7 +467,7 @@ export function PluginHistoryList({
                 <div className="flex min-h-0 flex-1 items-stretch justify-center gap-2 overflow-hidden rounded-xl border border-border/60 bg-black">
                   {/* 左侧视频（主视频） */}
                   <div className="relative flex min-w-0 flex-1 items-center justify-center">
-                    <video
+                    <AuthedVideo
                       key={`left-${leftVideo}`}
                       src={leftVideo}
                       poster={primaryAsset(currentJob)?.posterUrl}
@@ -460,7 +485,7 @@ export function PluginHistoryList({
                   {/* 右侧视频（分屏模式） */}
                   {previewMode === 'split' && rightVideo && (
                     <div className="relative flex min-w-0 flex-1 items-center justify-center border-l border-white/10">
-                      <video
+                      <AuthedVideo
                         key={`right-${rightVideo}`}
                         src={rightVideo}
                         autoPlay
@@ -582,16 +607,16 @@ export function PluginHistoryList({
                   <Download className="mr-1.5 size-3.5" />
                   下载视频
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => previewJob && primaryAsset(previewJob)?.url && handleCopy(primaryAsset(previewJob)!.url, setCopiedId, previewJob.id, '链接')}>
+                {!embedded && <DropdownMenuItem onClick={() => previewJob && primaryAsset(previewJob)?.url && handleCopy(primaryAsset(previewJob)!.url, setCopiedId, previewJob.id, '链接')}>
                   {copiedId === previewJob?.id
                     ? <Check className="mr-1.5 size-3.5 text-emerald-600" />
                     : <Copy className="mr-1.5 size-3.5" />}
                   复制链接
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => previewJob && primaryAsset(previewJob)?.url && window.open(primaryAsset(previewJob)!.url, '_blank')}>
+                </DropdownMenuItem>}
+                {!embedded && <DropdownMenuItem onClick={() => previewJob && primaryAsset(previewJob)?.url && window.open(primaryAsset(previewJob)!.url, '_blank')}>
                   <ExternalLink className="mr-1.5 size-3.5" />
                   新窗口打开
-                </DropdownMenuItem>
+                </DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </DialogFooter>
@@ -665,7 +690,8 @@ interface JobCardProps {
   copiedPromptId: string | null;
   downloadingId: string | null;
   probingId: string | null;
-  onCopyLink: (url: string) => void;
+  /** 不传时不显示「复制链接」与「新窗口打开」 */
+  onCopyLink?: (url: string) => void;
   onCopyPrompt: () => void;
   onPreview: () => void;
   onDownload: () => void;
@@ -841,16 +867,16 @@ function JobCard({
                   <Download className="mr-1.5 size-3.5" />
                   下载视频
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onCopyLink(asset.url)}>
+                {onCopyLink && <DropdownMenuItem onClick={() => onCopyLink(asset.url)}>
                   {copiedId === job.id
                     ? <Check className="mr-1.5 size-3.5 text-emerald-600" />
                     : <Copy className="mr-1.5 size-3.5" />}
                   复制链接
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => window.open(asset.url, '_blank')}>
+                </DropdownMenuItem>}
+                {onCopyLink && <DropdownMenuItem onClick={() => window.open(asset.url, '_blank')}>
                   <ExternalLink className="mr-1.5 size-3.5" />
                   新窗口打开
-                </DropdownMenuItem>
+                </DropdownMenuItem>}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

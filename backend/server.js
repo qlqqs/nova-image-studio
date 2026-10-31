@@ -18,6 +18,7 @@ const pluginRegistry = require('./plugin-runtime/registry');
 const pluginExecutor = require('./plugin-runtime/executor');
 const { validateAndNormalizeInput, InputError } = require('./plugin-runtime/input');
 const { createMediaStore } = require('./plugin-runtime/media');
+const { createResultStore } = require('./plugin-runtime/results');
 const { createEmbedSecurity, httpError: embedHttpError } = require('./embed/security');
 const { createPromptGallery } = require('./embed/prompt-gallery');
 
@@ -127,7 +128,17 @@ function hashPromptGalleryPassword(password) {
 const PORT = Number(process.env.PORT || 3000);
 const HOSTNAME = process.env.HOSTNAME || '0.0.0.0';
 const DB_PATH = process.env.NOVA_TASK_DB || path.join(__dirname, 'nova-tasks.sqlite');
+const PLUGIN_DATA_DIR = process.env.NOVA_TASK_DB ? path.dirname(DB_PATH) : path.join(__dirname, 'data');
 const TASK_TTL_MS = embed.enabled ? embed.retentionMs : (Number(process.env.NOVA_TASK_TTL_HOURS) || 12) * 60 * 60 * 1000;
+const VIDEO_RETENTION_DAYS = Number(process.env.NOVA_VIDEO_RETENTION_DAYS ?? 3);
+if (!Number.isSafeInteger(VIDEO_RETENTION_DAYS) || VIDEO_RETENTION_DAYS < 1 || VIDEO_RETENTION_DAYS > 36500) {
+  throw new Error('NOVA_VIDEO_RETENTION_DAYS must be a positive integer (at most 36500)');
+}
+const VIDEO_RETENTION_MS = VIDEO_RETENTION_DAYS * 86400000;
+const pluginResults = createResultStore({
+  directory: process.env.NOVA_VIDEO_DIR || path.join(PLUGIN_DATA_DIR, 'videos'),
+  allowHttp: process.env.NOVA_RESULT_DOWNLOAD_ALLOW_HTTP === '1',
+});
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const IMAGE_STREAM_ENABLED = String(process.env.NOVA_IMAGE_STREAM ?? 'true').toLowerCase() !== 'false';
@@ -234,7 +245,6 @@ let activeCount = 0;
  * 一律标失败（见 initDatabase），重启后没有需要恢复的进度。
  */
 const pluginTaskProgress = new Map(); // taskId -> { progress?: number, upstreamStatus?: string }
-const pluginTaskCache = new Map(); // taskId -> { lastPolledAt: number, cachedResponse: object, inFlightPromise: Promise|null }
 const runningTaskPromises = new Set();
 let isShuttingDown = false;
 let shutdownPromise = null;
@@ -524,6 +534,7 @@ const pluginMedia = createMediaStore({
   createHttpError,
   getClientIp,
   normalizeBaseUrl,
+  dataDir: PLUGIN_DATA_DIR,
 });
 
 function cleanupTaskRuntimeState(taskId) {
@@ -902,16 +913,17 @@ function initDatabase() {
   const now = new Date().toISOString();
   db.prepare('UPDATE tasks SET status = ? WHERE status = ?').run(TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED);
   db.prepare('UPDATE task_items SET status = ? WHERE status = ?').run(TASK_STATUS.QUEUED, TASK_STATUS.LEGACY_QUEUED);
-  const interruptedIds = db.prepare(`
-    SELECT id FROM tasks WHERE status IN (?, ?)
-  `).all(TASK_STATUS.QUEUED, TASK_STATUS.PROCESSING).map(r => r.id);
-  db.prepare(`
-    UPDATE tasks
-    SET status = 'failed', error = ?, completed_at = ?, expires_at = ?
-    WHERE status IN (?, ?)
-  `).run('服务器重启，任务已中断，请重新生成', now, new Date(Date.now() + TASK_TTL_MS).toISOString(), TASK_STATUS.QUEUED, TASK_STATUS.PROCESSING);
-  for (const id of interruptedIds) {
-    deleteTaskImageFiles(id);
+  const interrupted = db.prepare('SELECT * FROM tasks WHERE status IN (?, ?)')
+    .all(TASK_STATUS.QUEUED, TASK_STATUS.PROCESSING);
+  const interrupt = db.prepare("UPDATE tasks SET status = 'failed', error = ?, completed_at = ?, expires_at = ? WHERE id = ?");
+  for (const task of interrupted) {
+    const request = parseJsonSafely(task.request_json) || {};
+    const message = task.mode === 'plugin'
+      ? `服务重启，任务中断；如上游已生成，可联系管理员按任务 ID ${request.upstreamTaskId || '（尚未取得）'} 处理`
+      : '服务器重启，任务已中断，请重新生成';
+    interrupt.run(message, now, new Date(Date.parse(now) + (task.mode === 'plugin' ? VIDEO_RETENTION_MS : TASK_TTL_MS)).toISOString(), task.id);
+    deleteTaskImageFiles(task.id);
+    if (task.mode === 'plugin') pluginResults.remove(task.id);
   }
 }
 
@@ -2113,12 +2125,13 @@ function createPluginTask(body, req) {
     throw error;
   }
 
-  const baseUrl = normalizeBaseUrl(body.baseUrl) || plugin.manifest.credential.defaultBaseUrl || '';
+  const baseUrl = embed.enabled ? embed.gatewayUrl : normalizeBaseUrl(body.baseUrl) || plugin.manifest.credential.defaultBaseUrl || '';
   if (!baseUrl) {
     throw new Error('缺少 API 基地址，请在设置中填写');
   }
   // 出网闸门在这里先跑一次：让「主机没申报」在提交那一刻就报错，而不是排到队首才失败
-  pluginExecutor.assertUrlAllowed(plugin, `${baseUrl}/`, 'API 基地址');
+  pluginExecutor.assertUrlAllowed(plugin, `${baseUrl}/`, 'API 基地址', embed);
+  pluginMedia.validateForTask(normalized.media, plugin, req.novaUser);
 
   const limitConfig = getLimitConfig();
   if (isRejectNewTasksEnabled()) {
@@ -2138,18 +2151,20 @@ function createPluginTask(body, req) {
     fields: normalized.fields,
     media: normalized.media,
     baseUrl,
+    publicBaseUrl: pluginMedia.resolvePublicBaseUrl(req),
   };
 
   db.prepare(`
-    INSERT INTO tasks (id, status, mode, request_json, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, status, mode, request_json, created_at, expires_at, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(
     taskId,
     TASK_STATUS.QUEUED,
     'plugin',
     JSON.stringify(requestForDb),
     now,
-    new Date(Date.now() + TASK_TTL_MS).toISOString(),
+    null,
+    req.novaUser?.userId || null,
   );
 
   // 素材绑定到任务：此后随任务一起清理，也不再参与去重复用
@@ -2169,34 +2184,22 @@ function createPluginTask(body, req) {
   return taskId;
 }
 
-/** 把插件任务标为失败，并立刻释放素材与图片占用的磁盘——失败任务没有任何产出值得保留。 */
+/** 失败记录和素材保留到视频任务过期，清除未完成的结果下载。 */
 function failPluginTask(taskId, message) {
   const completedAt = new Date().toISOString();
   db.prepare(`
     UPDATE tasks SET status = 'failed', error = ?, completed_at = ?, expires_at = ? WHERE id = ?
-  `).run(message, completedAt, new Date(Date.now() + TASK_TTL_MS).toISOString(), taskId);
-  pluginTaskCache.delete(taskId);
+  `).run(message, completedAt, new Date(Date.parse(completedAt) + VIDEO_RETENTION_MS).toISOString(), taskId);
   deleteTaskImageFiles(taskId);
-  pluginMedia.deleteTaskMedia(taskId);
+  pluginResults.remove(taskId);
   cleanupTaskRuntimeState(taskId);
   broadcastTask(taskId);
   broadcastQueueStatus();
 }
 
-/** 缓存一份序列化结果，供前端 GET 在两次后端轮询之间直接命中。 */
-function cachePluginTaskResponse(taskId) {
-  const serialized = serializeTask(db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId));
-  pluginTaskCache.set(taskId, {
-    lastPolledAt: Date.now(),
-    cachedResponse: serialized,
-    inFlightPromise: null,
-  });
-  return serialized;
-}
-
 /**
  * 向上游查一次状态并把终态写回库。返回归一化后的状态。
- * 后端轮询循环与前端 GET 共用这一份逻辑，避免两处解析上游响应。
+ * 仅后端轮询推进状态，前端 GET 不触发上游请求。
  */
 async function pollPluginTaskOnce(taskId, plugin, context) {
   const outcome = await pluginExecutor.pollTask(plugin, context);
@@ -2211,17 +2214,7 @@ async function pollPluginTaskOnce(taskId, plugin, context) {
   }
 
   if (outcome.state === 'completed') {
-    const completedAt = new Date().toISOString();
-    db.prepare("UPDATE tasks SET status = 'completed', result_json = ?, completed_at = ?, expires_at = ? WHERE id = ?")
-      .run(
-        JSON.stringify({ assets: outcome.assets }),
-        completedAt,
-        new Date(Date.now() + TASK_TTL_MS).toISOString(),
-        taskId,
-      );
-    cachePluginTaskResponse(taskId);
-    broadcastTask(taskId);
-    return 'completed';
+    return completePluginTask(taskId, outcome.assets, context.upstreamTaskId);
   }
 
   if (outcome.state === 'failed') {
@@ -2229,8 +2222,22 @@ async function pollPluginTaskOnce(taskId, plugin, context) {
     return 'failed';
   }
 
-  cachePluginTaskResponse(taskId);
   return outcome.state;
+}
+
+async function completePluginTask(taskId, assets, upstreamTaskId) {
+  let saved;
+  try {
+    saved = await pluginResults.save(taskId, assets);
+  } catch (error) {
+    failPluginTask(taskId, `上游已生成并计费，但下载到工作台失败；上游任务 ID ${upstreamTaskId}，请联系管理员处理。${error.message}`);
+    return 'failed';
+  }
+  const completedAt = new Date().toISOString();
+  db.prepare("UPDATE tasks SET status = 'completed', result_json = ?, completed_at = ?, expires_at = ? WHERE id = ?")
+    .run(JSON.stringify({ assets: saved }), completedAt, new Date(Date.parse(completedAt) + VIDEO_RETENTION_MS).toISOString(), taskId);
+  broadcastTask(taskId);
+  return 'completed';
 }
 
 /**
@@ -2258,12 +2265,13 @@ async function runPluginTask(taskId) {
 
   const baseContext = {
     plugin,
-    baseUrl: request.baseUrl,
+    baseUrl: embed.enabled ? embed.gatewayUrl : request.baseUrl,
+    embed, clientIp: taskSources.get(taskId)?.ip,
     apiKey,
     model: request.model,
     facets: request.facets,
     fields: request.fields,
-    media: request.media,
+    media: pluginMedia.signedMedia(request.media, request.publicBaseUrl),
   };
 
   let upstreamTaskId;
@@ -2277,16 +2285,7 @@ async function runPluginTask(taskId) {
 
     // 少数上游在创建那一刻就直接返回成品，省掉一整轮轮询
     if (submitted.immediate) {
-      const completedAt = new Date().toISOString();
-      db.prepare("UPDATE tasks SET status = 'completed', result_json = ?, completed_at = ?, expires_at = ? WHERE id = ?")
-        .run(
-          JSON.stringify({ assets: submitted.immediate.assets }),
-          completedAt,
-          new Date(Date.now() + TASK_TTL_MS).toISOString(),
-          taskId,
-        );
-      pluginTaskProgress.set(taskId, { progress: 100, upstreamStatus: 'completed' });
-      cachePluginTaskResponse(taskId);
+      await completePluginTask(taskId, submitted.immediate.assets, upstreamTaskId);
       cleanupTaskRuntimeState(taskId);
       broadcastTask(taskId);
       broadcastQueueStatus();
@@ -2307,7 +2306,6 @@ async function runPluginTask(taskId) {
     // 任务被删除 / 过期就别再轮询了
     const stillThere = db.prepare('SELECT status FROM tasks WHERE id = ?').get(taskId);
     if (!stillThere) {
-      pluginTaskCache.delete(taskId);
       cleanupTaskRuntimeState(taskId);
       return;
     }
@@ -2347,67 +2345,10 @@ function normalizePluginError(error) {
   return message.length > 200 ? `${message.slice(0, 200)}…` : message;
 }
 
-/**
- * 前端 GET 用。状态推进由 runPluginTask 的后端轮询负责，这里只读库/缓存；
- * 仅当任务已在跑但后端轮询还没写回时，才顺带补一次上游查询。
- */
-async function getPluginTaskForClient(taskId) {
-  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
-  if (!row) {
-    return { id: taskId, status: 'expired', error: '该任务已超出取回时间' };
-  }
-  if (row.status === 'completed' || row.status === 'failed') {
-    return serializeTask(row);
-  }
-
-  const request = parseJsonSafely(row.request_json) || {};
-  // 还没拿到上游 ID 说明仍在本地队列里排队，直接回当前状态
-  if (!request.upstreamTaskId) return serializeTask(row);
-
-  const plugin = pluginRegistry.getPlugin(request.pluginId);
-  const apiKey = apiKeys.get(taskId);
-  if (!plugin || !apiKey) return serializeTask(row);
-
-  const now = Date.now();
-  const cached = pluginTaskCache.get(taskId);
-  if (cached) {
-    if (cached.inFlightPromise) return cached.inFlightPromise;
-    if (now - cached.lastPolledAt < 5000 && cached.cachedResponse) return cached.cachedResponse;
-  }
-
-  const context = pluginExecutor.buildContext({
-    plugin,
-    baseUrl: request.baseUrl,
-    apiKey,
-    model: request.model,
-    facets: request.facets,
-    fields: request.fields,
-    media: request.media,
-    upstreamTaskId: request.upstreamTaskId,
-  });
-
-  const inFlightPromise = (async () => {
-    try {
-      await pollPluginTaskOnce(taskId, plugin, context);
-    } catch (error) {
-      console.warn(`[plugin-task] 前端触发的轮询失败 taskId=${taskId}:`, error?.message || error);
-    } finally {
-      const entry = pluginTaskCache.get(taskId);
-      if (entry) entry.inFlightPromise = null;
-    }
-    return serializeTask(db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId));
-  })();
-
-  if (cached) {
-    cached.inFlightPromise = inFlightPromise;
-  } else {
-    pluginTaskCache.set(taskId, {
-      lastPolledAt: now,
-      cachedResponse: serializeTask(row),
-      inFlightPromise,
-    });
-  }
-  return inFlightPromise;
+/** 状态只由后端轮询推进，读取接口不再触发上游请求。 */
+function getPluginTaskForClient(taskId) {
+  const row = db.prepare("SELECT * FROM tasks WHERE id = ? AND mode = 'plugin'").get(taskId);
+  return serializeTask(row);
 }
 
 function serializeTask(task) {
@@ -2448,10 +2389,10 @@ function readPluginTaskMeta(task) {
 }
 
 function deleteTask(taskId) {
+  pluginResults.remove(taskId);
   deleteTaskImageFiles(taskId);
   // 素材与任务绑定：任务清理即素材清理
   pluginMedia.deleteTaskMedia(taskId);
-  pluginTaskCache.delete(taskId);
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM task_items WHERE task_id = ?').run(taskId);
     db.prepare('DELETE FROM tasks WHERE id = ?').run(taskId);
@@ -2744,8 +2685,8 @@ function registerShutdownHandlers() {
  * 内置任务与插件任务共用同一段逻辑。
  */
 function ackTask(res, taskId) {
-  // Receiving a result must not shorten the promised seven-day retention.
-  if (embed.enabled) { sendJson(res, 200, { ok: true }); return; }
+  // ack 不缩短嵌入任务与视频任务的保留期。
+  if (embed.enabled || db.prepare("SELECT id FROM tasks WHERE id = ? AND mode = 'plugin'").get(taskId)) { sendJson(res, 200, { ok: true }); return; }
   const ACK_GRACE_MS = 120 * 1000;
   const existing = db.prepare('SELECT id FROM tasks WHERE id = ?').get(taskId);
   if (existing) {
@@ -2759,14 +2700,26 @@ function ackTask(res, taskId) {
 async function handleApi(req, res, pathname, searchParams) {
   try {
     const apiPathname = pathname.replace(/\/+$/, '');
+    const publicMedia = apiPathname.match(/^\/api\/nova\/public-media\/([^/]+)$/);
+    if (publicMedia && (req.method === 'GET' || req.method === 'HEAD')) {
+      const name = decodeURIComponent(publicMedia[1]);
+      if (!pluginMedia.verifySignature(name, searchParams?.get('exp'), searchParams?.get('sig'))) {
+        sendJson(res, 404, { error: 'Not Found' }); return true;
+      }
+      pluginMedia.serveFile(req, res, name, 'private, max-age=3600');
+      return true;
+    }
+    if (embed.enabled && /^\/api\/nova\/plugin-media\/[^/]+$/.test(apiPathname) && ['GET', 'HEAD'].includes(req.method)) {
+      throw embedHttpError(404, 'NOT_FOUND');
+    }
     if (embed.enabled) {
       req.novaUser = embed.requireUser(req);
       if (apiPathname === '/api/nova/ws-ticket' && req.method === 'POST') {
         sendJson(res, 200, embed.issueTicket(req.novaUser));
         return true;
       }
-      // Video/media are not part of phase one. Fail closed, including direct API calls.
-      if (/^\/api\/nova\/(?:plugin-tasks|plugin-media|cdp)(?:\/|$)/.test(apiPathname)) {
+      // CDP stays disabled in embedded mode.
+      if (/^\/api\/nova\/cdp(?:\/|$)/.test(apiPathname)) {
         throw embedHttpError(404, 'NOT_FOUND');
       }
       if (apiPathname === '/api/nova/plugins' && (req.method !== 'GET' || searchParams?.get('reload') === '1')) {
@@ -2776,7 +2729,7 @@ async function handleApi(req, res, pathname, searchParams) {
         await promptGallery.handle(req, res, apiPathname, searchParams);
         return true;
       }
-      const ownedResource = apiPathname.match(/^\/api\/nova\/(?:tasks|images)\/([^/]+)/);
+      const ownedResource = apiPathname.match(/^\/api\/nova\/(?:tasks|images|plugin-tasks|plugin-results)\/([^/]+)/);
       if (ownedResource) {
         const task = db.prepare('SELECT user_id, expires_at FROM tasks WHERE id = ?').get(decodeURIComponent(ownedResource[1]));
         if (!embed.ownsTask(task, req.novaUser) || (task.expires_at && Date.parse(task.expires_at) <= Date.now())) {
@@ -3479,10 +3432,30 @@ async function handleApi(req, res, pathname, searchParams) {
       return true;
     }
 
-    // 素材回读：上游要匿名拉取，所以这里不鉴权（文件名是随机 UUID）
+    const previewMatch = apiPathname.match(/^\/api\/nova\/plugin-media\/([^/]+)\/preview$/);
+    if (previewMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+      const name = decodeURIComponent(previewMatch[1]);
+      if (embed.enabled && !pluginMedia.canPreview(name, req.novaUser)) throw embedHttpError(404, 'NOT_FOUND');
+      pluginMedia.serveFile(req, res, name);
+      return true;
+    }
+
+    const resultMatch = apiPathname.match(/^\/api\/nova\/plugin-results\/([^/]+)\/(\d+)$/);
+    if (resultMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+      const taskId = decodeURIComponent(resultMatch[1]);
+      const task = db.prepare("SELECT * FROM tasks WHERE id = ? AND mode = 'plugin'").get(taskId);
+      const index = Number(resultMatch[2]);
+      const asset = task && parseJsonSafely(task.result_json)?.assets?.[index];
+      if (!asset || (task.expires_at && Date.parse(task.expires_at) <= Date.now())) throw embedHttpError(404, 'NOT_FOUND');
+      pluginResults.serve(req, res, taskId, index, asset);
+      return true;
+    }
+
+    // 独立模式保留素材回读，嵌入模式只能使用鉴权预览或签名链接。
     const pluginMediaMatch = apiPathname.match(/^\/api\/nova\/plugin-media\/([^/]+)$/);
     if (pluginMediaMatch && (req.method === 'GET' || req.method === 'HEAD')) {
-      pluginMedia.serveFile(res, decodeURIComponent(pluginMediaMatch[1]));
+      if (embed.enabled) throw embedHttpError(404, 'NOT_FOUND');
+      pluginMedia.serveFile(req, res, decodeURIComponent(pluginMediaMatch[1]));
       return true;
     }
 

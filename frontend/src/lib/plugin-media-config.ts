@@ -179,3 +179,23 @@ export function describeRejections(kind: MediaKind, result: FileSelectionResult)
   }
   return parts.length > 0 ? `已忽略 ${parts.join('，')}` : null;
 }
+
+/** 读取本地视频的时长（秒），用于总时长校验与费用预估；浏览器解不出元数据时返回 undefined。 */
+export function readVideoDuration(url: string, timeoutMs = 10000): Promise<number | undefined> {
+  if (typeof document === 'undefined') return Promise.resolve(undefined);
+  return new Promise(resolve => {
+    const video = document.createElement('video');
+    const finish = (value?: number) => {
+      clearTimeout(timer);
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.removeAttribute('src');
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(undefined), timeoutMs);
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => finish(Number.isFinite(video.duration) ? video.duration : undefined);
+    video.onerror = () => finish(undefined);
+    video.src = url;
+  });
+}

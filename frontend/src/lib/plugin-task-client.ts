@@ -6,11 +6,13 @@
  */
 
 import type { FacetValues, FieldValues, MediaKind } from '@/lib/plugin-schema';
+import { inspectEmbedTaskPayload } from '@/lib/embed/task-events';
 
 export interface CreatePluginTaskPayload {
   pluginId: string;
   apiKey: string;
-  baseUrl: string;
+  /** 嵌入模式不传：后端固定走网关 */
+  baseUrl?: string;
   model: string;
   facets: FacetValues;
   fields: FieldValues;
@@ -67,7 +69,7 @@ export async function createPluginTask(payload: CreatePluginTaskPayload): Promis
   });
 
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
+    const data = inspectEmbedTaskPayload(await response.json().catch(() => ({})));
     throw new Error(data.error || data.message || `任务创建失败: ${response.status}`);
   }
 
@@ -85,7 +87,8 @@ export async function getPluginTask(taskId: string): Promise<PluginTaskResponse>
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || data.message || `查询任务失败: ${response.status}`);
   }
-  return response.json();
+  // 嵌入模式：网关错误转中文，终态时刷新余额
+  return inspectEmbedTaskPayload(await response.json() as PluginTaskResponse);
 }
 
 export async function ackPluginTask(taskId: string): Promise<void> {
