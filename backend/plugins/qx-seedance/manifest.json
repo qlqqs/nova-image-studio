@@ -37,7 +37,7 @@
   },
   "models": [
     {
-      "id": "seedance-2.0",
+      "id": "doubao-seedance-2-0-260128",
       "name": "Seedance 2.0",
       "price": {
         "unit": "per-second",
@@ -46,7 +46,7 @@
       }
     },
     {
-      "id": "seedance-2.5",
+      "id": "doubao-seedance-2-5-260628",
       "name": "Seedance 2.5",
       "price": {
         "unit": "per-second",

@@ -135,7 +135,7 @@ test('Seedance 插件加载、客户端描述与 12 种模型模式组合', () =
   assert.equal(description.provider, undefined);
   assert.equal(description.driver, undefined);
   assert.equal(description.models[0].price.unit, 'per-second');
-  assert.equal(resolveModelFromFacets(p.uiSchema, { targetModel: 'seedance-2.0', mode: 'edit' }), 'seedance-2.0');
+  assert.equal(resolveModelFromFacets(p.uiSchema, { targetModel: 'seedance-2.0', mode: 'edit' }), 'doubao-seedance-2-0-260128');
   assert.equal(resolveModelFromFacets(p.uiSchema, { targetModel: 'seedance-2.0', mode: 'bad' }), null);
 });
 
@@ -153,7 +153,7 @@ test('包校验器指出 manifest、模型引用及 allowRemoteUrl 的错误', (
 });
 
 test('默认字段、隐藏素材与 edit 时长', () => {
-  assert.deepEqual(buildSubmit(baseInput()).body, { model: 'seedance-2.5', content: [{ type: 'text', text: '一只猫' }],
+  assert.deepEqual(buildSubmit(baseInput()).body, { model: 'doubao-seedance-2-5-260628', content: [{ type: 'text', text: '一只猫' }],
     resolution: '720p', ratio: 'adaptive', duration: 5, generate_audio: true, watermark: false });
   const body = buildSubmit(baseInput({ facets: { targetModel: 'seedance-2.5', mode: 'edit' }, fields: { prompt: '修改', duration: -1 },
     media: { sourceVideo: ['https://media.test/in.mp4'], firstFrame: ['https://media.test/hidden.png'] } })).body;
@@ -202,7 +202,7 @@ test('模型时长、首帧画幅、素材个数及提示词权威校验', () =>
   for (const fields of [{ prompt: '' }, { prompt: 'x'.repeat(10001) }, { prompt: 'p', duration: 31 }]) {
     assert.throws(() => validateAndNormalizeInput(p, baseInput({ fields })), InputError);
   }
-  assert.throws(() => validateAndNormalizeInput(p, baseInput({ model: 'seedance-2.0' })), /不匹配/);
+  assert.throws(() => validateAndNormalizeInput(p, baseInput({ model: 'doubao-seedance-2-0-260128' })), /不匹配/);
 });
 
 test('Seedance 状态映射和错误文案', () => {

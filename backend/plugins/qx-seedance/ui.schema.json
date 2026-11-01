@@ -73,62 +73,62 @@
     },
     "variants": [
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "t2v"
       },
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "i2v"
       },
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "firstlast"
       },
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "reference"
       },
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "edit"
       },
       {
-        "model": "seedance-2.0",
+        "model": "doubao-seedance-2-0-260128",
         "targetModel": "seedance-2.0",
         "mode": "extend"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "t2v"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "i2v"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "firstlast"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "reference"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "edit"
       },
       {
-        "model": "seedance-2.5",
+        "model": "doubao-seedance-2-5-260628",
         "targetModel": "seedance-2.5",
         "mode": "extend"
       }

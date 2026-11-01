@@ -1,5 +1,5 @@
 {
-  "model": "seedance-2.0",
+  "model": "doubao-seedance-2-0-260128",
   "method": "POST",
   "url": "https://upstream.test/api/v3/contents/generations/tasks",
   "body": {
@@ -14,6 +14,6 @@
     "duration": -1,
     "generate_audio": true,
     "watermark": false,
-    "model": "seedance-2.0"
+    "model": "doubao-seedance-2-0-260128"
   }
 }

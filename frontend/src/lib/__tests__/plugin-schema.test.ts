@@ -179,10 +179,10 @@ describe('qx-seedance：模型与生成方式', () => {
 
   it('模型 ID 即对外模型名，任何生成方式都可用', () => {
     for (const mode of ['t2v', 'i2v', 'firstlast', 'reference', 'edit', 'extend']) {
-      expect(resolveModel(schema, { targetModel: 'seedance-2.5', mode })).toBe('seedance-2.5');
-      expect(resolveModel(schema, { targetModel: 'seedance-2.0', mode })).toBe('seedance-2.0');
+      expect(resolveModel(schema, { targetModel: 'seedance-2.5', mode })).toBe('doubao-seedance-2-5-260628');
+      expect(resolveModel(schema, { targetModel: 'seedance-2.0', mode })).toBe('doubao-seedance-2-0-260128');
     }
-    expect(facetsFromModel(schema, 'seedance-2.5')).toEqual({ targetModel: 'seedance-2.5', mode: 't2v' });
+    expect(facetsFromModel(schema, 'doubao-seedance-2-5-260628')).toEqual({ targetModel: 'seedance-2.5', mode: 't2v' });
     expect(facetsFromModel(schema, 'not-a-model')).toBeNull();
   });
 
@@ -295,12 +295,12 @@ describe('qx-seedance：提交校验', () => {
 
 describe('计价与布局', () => {
   it('按秒计费时数量取 priceQuantityField', () => {
-    expect(estimateCost(plugin, 'seedance-2.0', { duration: 10 })).toBe(7.5);
-    expect(estimateCost(plugin, 'seedance-2.5', { duration: 4 })).toBe(4.5);
+    expect(estimateCost(plugin, 'doubao-seedance-2-0-260128', { duration: 10 })).toBe(7.5);
+    expect(estimateCost(plugin, 'doubao-seedance-2-5-260628', { duration: 4 })).toBe(4.5);
   });
 
   it('数量缺失或模型未申报价格时返回 null，而不是 0', () => {
-    expect(estimateCost(plugin, 'seedance-2.0', {})).toBeNull();
+    expect(estimateCost(plugin, 'doubao-seedance-2-0-260128', {})).toBeNull();
     expect(estimateCost(plugin, 'unknown-model', { duration: 4 })).toBeNull();
   });
 

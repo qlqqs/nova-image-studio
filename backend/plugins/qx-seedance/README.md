@@ -1,6 +1,6 @@
 # Seedance 视频
 
-内置插件 `qx-seedance` 使用 Ark 任务协议，经 sub2api 网关调用 `seedance-2.0` / `seedance-2.5`。
+内置插件 `qx-seedance` 使用 Ark 任务协议，经 sub2api 网关调用 `doubao-seedance-2-0-260128` / `doubao-seedance-2-5-260628`（界面显示 Seedance 2.0 / 2.5）。
 网关账号的 model_mapping 负责映射到 mmgate 的实际模型 ID。
 
 ## 模式与参数
