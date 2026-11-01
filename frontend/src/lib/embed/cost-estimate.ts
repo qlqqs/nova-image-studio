@@ -2,7 +2,7 @@
  * 提交前的费用预估（PRD R6.2）：单价取自模型广场（与控制台显示一致），× 张数。
  * 只是预估；实际扣费以网关按所选 Key 计费为准。
  */
-import { findPlazaModel, formatScaled, perImagePrice, perSecondVideoPrice } from '@/lib/embed/key-policy';
+import { findPlazaModel, formatScaled, perImagePrice, perSecondVideoPrice, VIDEO_PRICE_DECIMALS } from '@/lib/embed/key-policy';
 import { getModelPlaza, type PlazaGroup, type Sub2ApiKey } from '@/lib/embed/sub2api-client';
 import {
   buildScope,
@@ -94,7 +94,9 @@ export function estimateVideoCost(plaza: PlazaGroup[] | null, key: Sub2ApiKey | 
   const count = Math.max(1, input.count ?? 1);
   const seconds = billedVideoSeconds(input);
   const total = unit * seconds * count;
-  const text = `预计 ${formatScaled(total, 1)}（${seconds} 秒 × ${formatScaled(unit, 1)}${count > 1 ? ` × ${count}` : ''}）`;
+  // 单价与总额都按精确值算，显示时各自四舍五入到 4 位小数
+  const show = (value: number) => formatScaled(value, 1, undefined, undefined, VIDEO_PRICE_DECIMALS);
+  const text = `预计 ${show(total)}（${seconds} 秒 × ${show(unit)}${count > 1 ? ` × ${count}` : ''}）`;
   return { unit, count, total, seconds, text };
 }
 

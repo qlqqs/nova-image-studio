@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { billedVideoSeconds, estimatePluginVideoCost, estimateVideoCost } from '@/lib/embed/cost-estimate';
-import { formatModelPrice, perSecondVideoPrice } from '@/lib/embed/key-policy';
+import { formatModelPrice, formatScaled, perSecondVideoPrice } from '@/lib/embed/key-policy';
 import type { InstalledPlugin } from '@/lib/plugin-schema';
-import { makeKey, PLAZA, VIDEO_PLAZA } from './fixtures';
+import { makeKey, PLAZA, VIDEO_PLAZA, VIDEO_PLAZA_LIST_PRICE } from './fixtures';
 
 const key = makeKey(3, 'openai'); // group 103
 const base = { model: 'seedance-2.0', resolution: '720p', maxDuration: 15, referenceVideoSeconds: [] };
@@ -171,5 +171,38 @@ describe('estimatePluginVideoCost × qx-seedance 插件包', () => {
     const imagesOnly = estimatePluginVideoCost(VIDEO_PLAZA, key, seedance, 'seedance-2.0', facets,
       { resolution: '4k', duration: 5 }, { referenceImages: [undefined] });
     expect(imagesOnly?.text).toBe('预计 ¥18.75（5 秒 × ¥3.75）');
+  });
+});
+
+describe('渠道原价 × 分组倍率 0.75：单价与总额最多显示 4 位小数', () => {
+  const input = { model: 'seedance-2.0', resolution: '480p', maxDuration: 15, duration: 5 };
+
+  it('formatScaled 的 maxFractionDigits 先四舍五入再补零', () => {
+    expect(formatScaled(0.531825, 1, 2, '¥', 4)).toBe('¥0.5318');
+    expect(formatScaled(0.59564325, 1, 2, '¥', 4)).toBe('¥0.5956');
+    expect(formatScaled(0.5, 1, 2, '¥', 4)).toBe('¥0.50');
+    expect(formatScaled(0.531825, 1)).toBe('¥0.531825');
+  });
+
+  it('2.0 / 480p / 5 秒普通档：总额按精确值算再舍入', () => {
+    const estimate = estimateVideoCost(VIDEO_PLAZA_LIST_PRICE, key, { ...input, referenceVideoSeconds: [] });
+    expect(estimate?.unit).toBeCloseTo(0.531825, 9);
+    expect(estimate?.total).toBeCloseTo(2.659125, 9);
+    expect(estimate?.text).toBe('预计 ¥2.6591（5 秒 × ¥0.5318）');
+  });
+
+  it('2.0 / 480p / 5 秒带 3 秒参考视频：-ref 档，9 秒', () => {
+    const estimate = estimateVideoCost(VIDEO_PLAZA_LIST_PRICE, key, { ...input, referenceVideoSeconds: [3] });
+    expect(estimate?.total).toBeCloseTo(0.794191 * 0.75 * 9, 9);
+    // 9 × 显示单价 0.5956 = 5.3604；总额用精确值 5.36078925 舍入
+    expect(estimate?.text).toBe('预计 ¥5.3608（9 秒 × ¥0.5956）');
+  });
+
+  it('设置页视频单价：最低价与无分档时都最多 4 位小数', () => {
+    const [sd20, sd25] = VIDEO_PLAZA_LIST_PRICE[0].models;
+    expect(formatModelPrice(VIDEO_PLAZA_LIST_PRICE[0], sd20)).toBe('¥0.5318 起 / 秒，按分辨率与参考视频分档');
+    expect(formatModelPrice(VIDEO_PLAZA_LIST_PRICE[0], sd25)).toBe('¥0.7446 起 / 秒，按分辨率与参考视频分档');
+    const flat = { ...sd20, pricing: { ...sd20.pricing!, intervals: [] } };
+    expect(formatModelPrice(VIDEO_PLAZA_LIST_PRICE[0], flat)).toBe('¥0.5318 / 秒');
   });
 });

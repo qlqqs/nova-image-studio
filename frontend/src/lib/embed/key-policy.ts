@@ -236,11 +236,15 @@ export function deriveTextProtocol(platform: string, model: string): TextProvide
 const BALANCE_SYMBOL = '¥';
 const PER_MILLION = 1_000_000;
 const MIN_DECIMALS = 2;
+/** 视频每秒单价最多显示 4 位小数（change-02），扣费仍按精确值。 */
+export const VIDEO_PRICE_DECIMALS = 4;
 
-/** 同 sub2api utils/pricing.ts formatScaled。 */
-export function formatScaled(value: number | null | undefined, scale: number, minFractionDigits = MIN_DECIMALS, symbol = BALANCE_SYMBOL): string {
+/** 同 sub2api utils/pricing.ts formatScaled：maxFractionDigits 先四舍五入到该位数。 */
+export function formatScaled(value: number | null | undefined, scale: number, minFractionDigits = MIN_DECIMALS, symbol = BALANCE_SYMBOL, maxFractionDigits?: number): string {
   if (value == null || !Number.isFinite(value)) return '-';
-  let s = Number((value * scale).toPrecision(10)).toString();
+  let n = value * scale;
+  if (maxFractionDigits != null) n = Math.round(n * 10 ** maxFractionDigits) / 10 ** maxFractionDigits;
+  let s = Number(n.toPrecision(10)).toString();
   if (minFractionDigits > 0 && !s.includes('e')) {
     const dot = s.indexOf('.');
     const digits = dot === -1 ? 0 : s.length - dot - 1;
@@ -340,18 +344,19 @@ export function formatModelPrice(group: PlazaGroup, model: PlazaModel): string {
   }
   const rate = requestRate(group, model);
   const unit = mode === 'image' ? '张' : mode === 'video' ? '秒' : '次';
+  const maxDigits = mode === 'video' ? VIDEO_PRICE_DECIMALS : undefined;
   const tiers = (pricing.intervals || []).filter((item) => item.per_request_price != null);
   if (mode === 'video' && tiers.length > 0) {
     // 视频分档多（分辨率 × 是否带参考视频），只显示最低价；具体单价在视频工作台按所选分辨率预估
     const lowest = Math.min(...[pricing.per_request_price, ...tiers.map((item) => item.per_request_price)].filter((value): value is number => value != null));
-    return `${formatScaled(lowest * rate, 1)} 起 / 秒，按分辨率与参考视频分档`;
+    return `${formatScaled(lowest * rate, 1, MIN_DECIMALS, BALANCE_SYMBOL, VIDEO_PRICE_DECIMALS)} 起 / 秒，按分辨率与参考视频分档`;
   }
   if (tiers.length > 0) {
     return tiers
-      .map((item) => `${item.tier_label ? `${item.tier_label} ` : ''}${formatScaled((item.per_request_price as number) * rate, 1)}`)
+      .map((item) => `${item.tier_label ? `${item.tier_label} ` : ''}${formatScaled((item.per_request_price as number) * rate, 1, MIN_DECIMALS, BALANCE_SYMBOL, maxDigits)}`)
       .join(' · ') + ` / ${unit}`;
   }
-  if (pricing.per_request_price != null) return `${formatScaled(pricing.per_request_price * rate, 1)} / ${unit}`;
+  if (pricing.per_request_price != null) return `${formatScaled(pricing.per_request_price * rate, 1, MIN_DECIMALS, BALANCE_SYMBOL, maxDigits)} / ${unit}`;
   if (mode === 'image' && pricing.image_output_price != null) return `${formatScaled(pricing.image_output_price * rate, 1)} / ${unit}`;
   return '';
 }

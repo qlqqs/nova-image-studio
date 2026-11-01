@@ -61,3 +61,27 @@ export const VIDEO_PLAZA: PlazaGroup[] = [
     ],
   },
 ];
+
+/** change-02：渠道填 mmgate 原价，分组倍率 0.75（售价 = 原价 × 0.75，小数很长）。 */
+export const VIDEO_PLAZA_LIST_PRICE: PlazaGroup[] = [
+  {
+    id: 103,
+    name: 'Seedance 视频',
+    platform: 'openai',
+    rate_multiplier: 0.75,
+    models: [
+      {
+        name: 'seedance-2.0', platform: 'openai', pricing: {
+          billing_mode: 'video', input_price: null, output_price: null, per_request_price: 0.7091,
+          intervals: videoTiers({ '720p': 1, '1080p': 2.5, '4k': 5, '480p-ref': 0.794191, '720p-ref': 1.21, '1080p-ref': 3.01, '4k-ref': 6.22 }),
+        },
+      },
+      {
+        name: 'seedance-2.5', platform: 'openai', pricing: {
+          billing_mode: 'video', input_price: null, output_price: null, per_request_price: 0.992741,
+          intervals: videoTiers({ '720p': 1.5, '1080p': 3.7, '480p-ref': 1.148742, '720p-ref': 1.81, '1080p-ref': 4.47 }),
+        },
+      },
+    ],
+  },
+];
